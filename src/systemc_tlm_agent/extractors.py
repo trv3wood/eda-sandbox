@@ -298,8 +298,6 @@ def extract_project(project_dir: Path, *, run_tools: bool = True) -> dict[str, A
         manifest.get("rtl", []),
         directory_suffixes={".v", ".sv"},
     )
-    if not rtl_files:
-        raise FileNotFoundError("no .v or .sv RTL files found")
     rtl_units = []
     for path in rtl_files:
         evidence, facts = extract_rtl(path, project_dir)
@@ -319,8 +317,18 @@ def extract_project(project_dir: Path, *, run_tools: bool = True) -> dict[str, A
                 top=manifest["top"],
                 tools_dir=paths["tools"],
             )
-            if run_tools
-            else {"status": "skipped"}
+            if run_tools and rtl_files
+            else {
+                tool: {
+                    "status": "skipped",
+                    "reason": (
+                        "no RTL inputs were provided"
+                        if not rtl_files
+                        else "EDA tool execution was disabled"
+                    ),
+                }
+                for tool in ("surelog", "verilator", "yosys")
+            }
         ),
     }
     dump_json(paths["facts"] / "rtl.json", rtl_facts)
@@ -332,8 +340,10 @@ def extract_project(project_dir: Path, *, run_tools: bool = True) -> dict[str, A
         "evidence_count": len(all_evidence),
         "document_count": len(documents),
         "register_workbook_count": len(registers),
+        "rtl_available": bool(rtl_files),
         "rtl_file_count": len(rtl_units),
         "rtl_module_count": sum(len(unit["modules"]) for unit in rtl_units),
+        "missing_inputs": [] if rtl_files else ["rtl"],
     }
     dump_json(paths["facts"] / "summary.json", summary)
     return summary

@@ -24,6 +24,34 @@ class Args:
 
 
 class WorkflowTest(unittest.TestCase):
+    def test_extract_allows_missing_rtl(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            args = Args()
+            args.project = str(project)
+            args.name = "spec-only-ip"
+            args.top = "spec_only_ip"
+            args.rtl = []
+            command_init(args)
+
+            # Keep run_tools enabled to prove that absent RTL skips, rather
+            # than invokes, all structural EDA integrations.
+            summary = extract_project(project)
+            self.assertFalse(summary["rtl_available"])
+            self.assertEqual(summary["missing_inputs"], ["rtl"])
+
+            rtl = load_json(project_paths(project)["facts"] / "rtl.json")
+            self.assertEqual(rtl["files"], [])
+            for tool in ("surelog", "verilator", "yosys"):
+                self.assertEqual(rtl["tools"][tool]["status"], "skipped")
+                self.assertEqual(
+                    rtl["tools"][tool]["reason"], "no RTL inputs were provided"
+                )
+
+            create_architecture_draft(project)
+            errors = validate_architecture(project)
+            self.assertIn("model.modules must not be empty", errors)
+
     def test_approval_gate_and_generation(self) -> None:
         fixture = Path(__file__).parent / "fixtures" / "packet_engine"
         with tempfile.TemporaryDirectory() as temporary:

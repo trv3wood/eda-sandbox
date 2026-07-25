@@ -18,15 +18,20 @@ Initialize:
 
 ```bash
 systemc-tlm-agent init PROJECT --name NAME --top RTL_TOP \
-  --docx spec.docx --xlsx registers.xlsx --rtl rtl
+  --docx spec.docx --xlsx registers.xlsx [--rtl rtl]
 ```
 
 The manifest paths are relative to `PROJECT`. RTL entries accept files, glob
 patterns, or directories. Directories are searched recursively for `.v` and
-`.sv` files. Extraction is deterministic and records source digests and
-locators. Re-run extraction whenever an input changes.
+`.sv` files. RTL may be omitted when it is not yet available. Extraction then
+continues with the available documents/register maps, records RTL as a missing
+input, and skips structural EDA tools. Extraction is deterministic and records
+source digests and locators. Re-run extraction whenever an input changes.
 
-Architecture is a human/agent-authored decision artifact. Each complete claim has one or more `evidence_ids`. Use `not_applicable` only with a reason in `summary`.
+Architecture is a human/agent-authored decision artifact. Each complete claim
+has one or more `evidence_ids`. Missing RTL is unresolved evidence, not
+`not_applicable`; an empty model partition continues to block approval and
+generation. Use `not_applicable` only with a reason in `summary`.
 
 Generation requires `approval.yaml`. Approval hashes the manifest, extracted facts, architecture, and conflicts. Any subsequent edit makes approval stale.
 
