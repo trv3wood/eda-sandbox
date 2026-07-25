@@ -5,6 +5,7 @@ experiments:
 
 - `eda-fast`: Ubuntu 24.04 for fast development and distribution packages.
 - `eda-scc`: Ubuntu 24.04 with the same fast toolchain plus a compiled SCC/SystemC prefix.
+- `eda-agent`: Ubuntu 24.04 with document processing python libraries for agent use based on eda-scc
 - `eda-enterprise`: Rocky Linux 8 for RHEL-family compatibility checks.
 
 The containers use prebuilt conda-forge packages for Surelog and UHDM instead
@@ -29,7 +30,7 @@ With Podman (recommended in this environment):
 ```bash
 podman-compose build
 podman-compose run --rm eda-fast bash scripts/regress.sh
-podman-compose run --rm eda-scc bash scripts/regress.sh
+podman-compose run --rm eda-eda bash scripts/regress.sh
 podman-compose run --rm eda-enterprise bash scripts/regress.sh
 ```
 

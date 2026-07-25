@@ -23,6 +23,18 @@ services:
     stdin_open: true
     tty: true
 
+  eda-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.ubuntu
+      target: agent
+    image: eda-agent:local
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+    stdin_open: true
+    tty: true
+
   eda-enterprise:
     build:
       context: .

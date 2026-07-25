@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-required=(bash cmake ninja git python3 surelog verilator yosys flex bison dot)
+required=(bash cmake ninja git python3 surelog verilator yosys)
+optional=(flex bison dot systemc-tlm-agent)
 missing=()
 
 for tool in "${required[@]}"; do

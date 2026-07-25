@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "systemc-tlm-agent"
+version = "0.1.0"
+description = "Evidence-grounded SystemC/TLM modeling workflow"
+requires-python = ">=3.10"
+dependencies = [
+  "jsonschema>=4.20",
+  "openpyxl>=3.1",
+  "pydantic>=2.6",
+  "python-docx>=1.1",
+  "PyYAML>=6.0",
+]
+
+[project.scripts]
+systemc-tlm-agent = "systemc_tlm_agent.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

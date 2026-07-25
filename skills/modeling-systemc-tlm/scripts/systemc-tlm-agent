@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+skill_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+repo_root="${SYSTEMC_TLM_AGENT_ROOT:-$(cd -- "$skill_dir/../.." && pwd)}"
+
+if [[ -d "$repo_root/src/systemc_tlm_agent" ]]; then
+  export PYTHONPATH="$repo_root/src${PYTHONPATH:+:$PYTHONPATH}"
+fi
+
+exec python3 -m systemc_tlm_agent.cli "$@"
+

@@ -89,3 +89,15 @@ ENV PATH=/opt/scc/bin:/opt/conan/bin:/opt/conda/envs/eda/bin:/usr/local/bin:$PAT
     LD_LIBRARY_PATH=/opt/scc/lib:/tmp/scc-src/build/Release:/opt/conda/envs/eda/lib
 
 CMD ["/bin/bash"]
+
+FROM scc AS agent
+
+RUN micromamba install --yes --prefix /opt/conda/envs/eda \
+        jsonschema openpyxl pydantic python-docx pyyaml && \
+    micromamba clean --all --yes
+
+COPY pyproject.toml /opt/systemc-agent/
+COPY src /opt/systemc-agent/src
+RUN python3 -m pip install --no-deps /opt/systemc-agent
+
+CMD ["/bin/bash"]
