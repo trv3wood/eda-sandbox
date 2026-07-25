@@ -1,0 +1,91 @@
+FROM ubuntu:24.04 AS eda-base
+
+ARG MICROMAMBA_VERSION=2.6.2-1
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    TZ=UTC \
+    MAMBA_ROOT_PREFIX=/opt/conda \
+    PATH=/opt/conda/envs/eda/bin:/usr/local/bin:$PATH
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        file \
+        git \
+        which && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY env/eda-environment.yml env/surelog-environment.yml /tmp/
+
+RUN curl -fsSL \
+        "https://github.com/mamba-org/micromamba-releases/releases/download/${MICROMAMBA_VERSION}/micromamba-linux-64" \
+        -o /usr/local/bin/micromamba && \
+    chmod 0755 /usr/local/bin/micromamba && \
+    micromamba create --yes --prefix /opt/conda/envs/eda --file /tmp/eda-environment.yml && \
+    micromamba create --yes --prefix /opt/conda/envs/surelog --file /tmp/surelog-environment.yml && \
+    micromamba clean --all --yes && \
+    rm -f /tmp/eda-environment.yml /tmp/surelog-environment.yml
+
+COPY scripts/surelog /usr/local/bin/surelog
+RUN chmod 0755 /usr/local/bin/surelog
+
+WORKDIR /workspace
+
+FROM eda-base AS fast
+
+CMD ["/bin/bash"]
+
+FROM eda-base AS scc-tools
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        cmake \
+        ninja-build \
+        python3-pip \
+        python3-venv && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN python3 -m venv /opt/conan && \
+    /opt/conan/bin/pip install --no-cache-dir --disable-pip-version-check conan
+
+ENV PATH=/opt/conan/bin:/opt/conda/envs/eda/bin:/usr/local/bin:$PATH
+
+FROM scc-tools AS scc-source
+
+ARG SCC_VERSION=2026.05
+
+WORKDIR /tmp
+
+RUN git clone --depth 1 --recurse-submodules --shallow-submodules \
+    --branch "${SCC_VERSION}" \
+    https://github.com/Minres/SystemC-Components.git scc-src && \
+    git -C scc-src submodule update --init --recursive
+
+FROM scc-source AS scc-deps
+
+RUN cd /tmp/scc-src && \
+    /opt/conan/bin/conan profile detect --force && \
+    /opt/conan/bin/conan install . \
+        --output-folder=/tmp/scc-conan \
+        --build=missing \
+        -s build_type=Release
+
+FROM scc-deps AS scc-build
+
+RUN cd /tmp/scc-src && \
+    cmake -S . -B build/scc-release -G Ninja \
+        -DCMAKE_TOOLCHAIN_FILE=/tmp/scc-conan/build/Release/generators/conan_toolchain.cmake \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/opt/scc && \
+    cmake --build build/scc-release --parallel && \
+    cmake --install build/scc-release
+
+FROM scc-build AS scc
+
+ENV PATH=/opt/scc/bin:/opt/conan/bin:/opt/conda/envs/eda/bin:/usr/local/bin:$PATH \
+    CMAKE_PREFIX_PATH=/opt/scc:/tmp/scc-src/build/Release:/opt/conda/envs/eda \
+    LD_LIBRARY_PATH=/opt/scc/lib:/tmp/scc-src/build/Release:/opt/conda/envs/eda/lib
+
+CMD ["/bin/bash"]

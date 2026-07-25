@@ -1,0 +1,35 @@
+services:
+  eda-fast:
+    build:
+      context: .
+      dockerfile: Dockerfile.ubuntu
+      target: fast
+    image: eda-fast:local
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+    stdin_open: true
+    tty: true
+
+  eda-scc:
+    build:
+      context: .
+      dockerfile: Dockerfile.ubuntu
+      target: scc
+    image: eda-scc:local
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+    stdin_open: true
+    tty: true
+
+  eda-enterprise:
+    build:
+      context: .
+      dockerfile: Dockerfile.rocky8
+    image: eda-enterprise:local
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+    stdin_open: true
+    tty: true

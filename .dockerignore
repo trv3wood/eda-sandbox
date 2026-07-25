@@ -1,0 +1,7 @@
+.git
+.agents
+.codex
+workspace/.venv
+workspace/build
+workspace/out
+*.swp

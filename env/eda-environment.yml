@@ -1,0 +1,11 @@
+name: eda
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - cmake
+  - ninja
+  - uhdm=1.84
+  - verilator
+  - yosys
+  - pip

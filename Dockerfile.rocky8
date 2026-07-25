@@ -1,0 +1,44 @@
+FROM rockylinux:8
+
+ARG MICROMAMBA_VERSION=2.6.2-1
+
+ENV LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    TZ=UTC \
+    MAMBA_ROOT_PREFIX=/opt/conda \
+    PATH=/opt/conda/envs/eda/bin:/usr/local/bin:$PATH
+
+RUN dnf -y install \
+        dnf-plugins-core \
+        epel-release && \
+    dnf config-manager --set-enabled powertools && \
+    dnf -y groupinstall "Development Tools" && \
+    dnf -y install \
+        ca-certificates \
+        curl \
+        file \
+        git \
+        wget \
+        which \
+        boost-devel \
+        eigen3-devel && \
+    dnf clean all && \
+    rm -rf /var/cache/dnf
+
+COPY env/eda-environment.yml env/surelog-environment.yml /tmp/
+
+RUN curl -fsSL \
+        "https://github.com/mamba-org/micromamba-releases/releases/download/${MICROMAMBA_VERSION}/micromamba-linux-64" \
+        -o /usr/local/bin/micromamba && \
+    chmod 0755 /usr/local/bin/micromamba && \
+    micromamba create --yes --prefix /opt/conda/envs/eda --file /tmp/eda-environment.yml && \
+    micromamba create --yes --prefix /opt/conda/envs/surelog --file /tmp/surelog-environment.yml && \
+    micromamba clean --all --yes && \
+    rm -f /tmp/eda-environment.yml /tmp/surelog-environment.yml
+
+COPY scripts/surelog /usr/local/bin/surelog
+RUN chmod 0755 /usr/local/bin/surelog
+
+WORKDIR /workspace
+
+CMD ["/bin/bash"]
