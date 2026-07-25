@@ -14,7 +14,7 @@ Map evidence into all eight contracts, partition 7–8 module IPs, choose transa
 
 ## Implementer
 
-Generate and refine C++17 SystemC/TLM code strictly from approved contracts. Keep SCC dependencies behind adapters. Add traceable tests for each contract.
+Generate and refine C++17 SystemC/TLM code strictly from approved contracts. Keep minres-SCC dependencies behind adapters. Add traceable tests for each contract.
 
 ## Verifier
 

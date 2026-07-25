@@ -1,6 +1,6 @@
 ---
 name: modeling-systemc-tlm
-description: Build evidence-grounded, loosely timed SystemC TLM-2.0 IP models from DOCX specifications, XLSX register maps, and SystemVerilog RTL. Use for medium-size IP architecture extraction, eight-category modeling contracts, SCC-oriented model generation, and compile/differential verification.
+description: Build evidence-grounded, loosely timed SystemC TLM-2.0 IP models from DOCX specifications, XLSX register maps, and SystemVerilog RTL. Use for medium-size IP architecture extraction, eight-category modeling contracts, minres-SCC-oriented model generation, and compile/differential verification.
 ---
 
 # SystemC TLM Modeling
@@ -30,12 +30,12 @@ Follow `references/roles.md`. Keep Planner, Evidence Extractor, Architect, Imple
 
 - Treat Spec and RTL as ground truth sources. Preserve source location and digest for every extracted claim.
 - Model at loosely timed TLM-2.0 transaction granularity unless the approved contract explicitly requires finer timing.
-- Isolate SCC usage behind adapters so the functional model remains testable with standard SystemC.
+- Isolate minres-SCC usage behind adapters so the functional model remains testable with standard SystemC.
 - Represent latency, queues, arbitration, backpressure, errors, register side effects, interrupts, and completion conditions explicitly when supported by evidence.
 - A changed input, fact, contract, or conflict file invalidates approval and blocks regeneration.
 - Report verification limitations. Do not label a model RTL-equivalent when no shared-stimulus comparator exists.
 
 ## Tool Routing
 
-Read `references/tooling.md` before choosing local or container execution. Do not launch large image builds or SCC recompiles automatically; provide the exact command for the user to run.
+Read `references/tooling.md` before choosing local or container execution. Do not launch large image builds or minres-SCC recompiles automatically; provide the exact command for the user to run.
 

@@ -1,4 +1,4 @@
 interface:
   display_name: "SystemC TLM Modeler"
-  short_description: "Build evidence-grounded SCC/SystemC TLM models"
-  default_prompt: "Use $modeling-systemc-tlm to extract design contracts and build a verified SCC/SystemC TLM model."
+  short_description: "Build evidence-grounded minres-SCC/SystemC TLM models"
+  default_prompt: "Use $modeling-systemc-tlm to extract design contracts and build a verified minres-SCC/SystemC TLM model."

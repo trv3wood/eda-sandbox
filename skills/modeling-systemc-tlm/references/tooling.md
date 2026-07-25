@@ -1,6 +1,6 @@
 # Tool and Backend Policy
 
-Use local execution when SystemC/SCC and EDA tools are already available. Otherwise use:
+Use local execution when SystemC/minres-SCC and EDA tools are already available. Otherwise use:
 
 ```bash
 podman compose run --rm eda-agent \
@@ -15,5 +15,5 @@ Structural extraction uses:
 
 Regex RTL extraction remains a fallback and evidence locator, not a full SystemVerilog parser.
 
-The `eda-agent` image extends the cached SCC image with document and schema Python packages. Building SCC can take a long time; ask the user to run `podman compose build eda-agent` when the cached SCC stages are unavailable.
+The `eda-agent` image extends the cached minres-SCC image with document and schema Python packages. Building minres-SCC can take a long time; ask the user to run `podman compose build eda-agent` when the cached minres-SCC stages are unavailable.
 

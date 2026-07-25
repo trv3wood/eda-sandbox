@@ -17,6 +17,7 @@ dependencies = [
 
 [project.scripts]
 systemc-tlm-agent = "systemc_tlm_agent.cli:main"
+benchmark-systemc-tlm = "systemc_tlm_agent.benchmark_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

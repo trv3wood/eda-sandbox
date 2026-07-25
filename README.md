@@ -84,3 +84,9 @@ This is a containerized open-source toolchain smoke environment, not a VM.
 It does not emulate the host kernel, CentOS 7 userspace, LSF, network mounts,
 license servers, or commercial tools such as VCS and Verdi. Use a real legacy
 environment for the final CentOS 7 compatibility check.
+
+## SystemC TLM Skill benchmark
+
+The offline-safe A/B benchmark planner, architecture gate, score aggregation,
+and report workflow are documented in
+[`docs/systemc-tlm-benchmark.md`](docs/systemc-tlm-benchmark.md).
