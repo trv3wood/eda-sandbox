@@ -1,0 +1,11 @@
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - cmake
+  - ninja
+  - flex
+  - surelog=1.84
+  - uhdm=1.84
+  - verilator
+  - yosys

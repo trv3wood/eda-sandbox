@@ -46,6 +46,7 @@ scripts/eda-run rtl verilator --version
 scripts/eda-run uhdm surelog --version
 scripts/eda-run uhdm eda-uhdm query design.uhdm --kind modules
 scripts/eda-run scc --shell
+scripts/eda-run rocky --shell
 ```
 
 默认使用 `ghcr.io/trv3wood/eda-*:main`、挂载当前目录并保持宿主 UID，且不会
@@ -76,6 +77,8 @@ podman compose build
 
 `.github/workflows/ubuntu-images.yml` 构建 `linux/amd64` GHCR 镜像，复用
 BuildKit/GHA cache，并强制单镜像小于 2 GiB（`eda-agent` 小于 500 MiB）。
+`.github/workflows/rocky8-image.yml` 独立构建并测试
+`ghcr.io/trv3wood/eda-enterprise`，避免 Rocky 兼容性构建拖慢 Ubuntu 矩阵。
 
 ## 适用范围
 

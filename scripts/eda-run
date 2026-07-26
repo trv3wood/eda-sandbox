@@ -8,10 +8,11 @@ Usage:
   scripts/eda-run [OPTIONS] ROLE --shell
 
 Roles:
-  agent    Workflow, benchmark, and offline queries
-  uhdm     Surelog and the UHDM Python query service
-  rtl      Verilator and Yosys
-  scc      SystemC/SCC compilation and verification
+  agent       Workflow, benchmark, and offline queries
+  uhdm        Surelog and the UHDM Python query service
+  rtl         Verilator and Yosys
+  scc         SystemC/SCC compilation and verification
+  rocky       Rocky Linux 8 compatibility toolchain
 
 Options:
   --work DIR       Mount DIR at /workspace (default: current directory)
@@ -25,13 +26,15 @@ Environment:
   EDA_CONTAINER_ENGINE  podman or docker
   EDA_IMAGE_PREFIX      default: ghcr.io/trv3wood
   EDA_IMAGE_TAG         default: main
-  EDA_AGENT_IMAGE, EDA_UHDM_IMAGE, EDA_RTL_IMAGE, EDA_SCC_IMAGE
+  EDA_AGENT_IMAGE, EDA_UHDM_IMAGE, EDA_RTL_IMAGE, EDA_SCC_IMAGE,
+  EDA_ROCKY_IMAGE
 
 Examples:
   scripts/eda-run rtl verilator --version
   scripts/eda-run uhdm surelog --version
   scripts/eda-run uhdm eda-uhdm query design.uhdm --kind modules
   scripts/eda-run scc --shell
+  scripts/eda-run rocky --shell
 EOF
 }
 
@@ -109,6 +112,10 @@ case "${role}" in
   scc)
     role_image="${EDA_SCC_IMAGE:-}"
     image_name="eda-scc"
+    ;;
+  rocky|enterprise)
+    role_image="${EDA_ROCKY_IMAGE:-${EDA_ENTERPRISE_IMAGE:-}}"
+    image_name="eda-enterprise"
     ;;
   *)
     printf 'ERROR: unknown role: %s\n' "${role}" >&2

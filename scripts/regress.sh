@@ -3,7 +3,9 @@ set -Eeuo pipefail
 
 profile="${1:-auto}"
 if [[ "${profile}" == "auto" ]]; then
-  if command -v surelog >/dev/null && command -v eda-uhdm >/dev/null; then
+  if [[ -f /etc/rocky-release ]]; then
+    profile="enterprise"
+  elif command -v surelog >/dev/null && command -v eda-uhdm >/dev/null; then
     profile="uhdm"
   elif command -v verilator >/dev/null && command -v yosys >/dev/null; then
     profile="rtl"
@@ -86,8 +88,31 @@ case "${profile}" in
     cmake -S "${probe_dir}" -B "${probe_dir}/build" -G Ninja >/dev/null
     cmake --build "${probe_dir}/build" >/dev/null
     ;;
+  enterprise)
+    require_tools \
+      bash cmake ninja git python3 surelog uhdm-export verilator yosys
+    printf '  CMake:     %s\n' "$(cmake --version | head -n 1)"
+    printf '  Ninja:     %s\n' "$(ninja --version)"
+    printf '  Verilator: %s\n' "$(verilator --version)"
+    printf '  Yosys:     %s\n' "$(yosys -V)"
+    uhdm-export --version
+    probe_dir="$(mktemp -d)"
+    trap 'rm -rf "${probe_dir}"' EXIT
+    printf '%s\n' \
+      'module top(input logic clk_i, output logic ready_o);' \
+      '  assign ready_o = clk_i;' \
+      'endmodule' \
+      >"${probe_dir}/top.sv"
+    (
+      cd "${probe_dir}"
+      surelog top.sv -top top -parse -elabuhdm -d uhdm >/dev/null
+      uhdm-export slpp_all/surelog.uhdm uhdm.json
+      python3 -c \
+        'import json; data=json.load(open("uhdm.json")); assert data["objects"]'
+    )
+    ;;
   *)
-    printf 'ERROR: expected profile agent, uhdm, rtl, scc, or auto\n' >&2
+    printf 'ERROR: expected profile agent, uhdm, rtl, scc, enterprise, or auto\n' >&2
     exit 2
     ;;
 esac
