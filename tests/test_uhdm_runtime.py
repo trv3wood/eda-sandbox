@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import tempfile
+import types
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from eda_query.uhdm_runtime import query_snapshot
+from eda_query.uhdm_runtime import query_snapshot, snapshot
 
 
 class UhdmRuntimeTest(unittest.TestCase):
@@ -45,6 +47,34 @@ class UhdmRuntimeTest(unittest.TestCase):
                     {"objects": []}, database, kind="ports", selectors={},
                     limit=10_001, offset=0,
                 )
+
+    def test_snapshot_falls_back_to_cpp_exporter(self) -> None:
+        class Serializer:
+            pass
+
+        def run(command: list[str], **_: object) -> types.SimpleNamespace:
+            Path(command[2]).write_text(
+                '{"format":"uhdm-json","objects":['
+                '{"id":1,"kind":"module","name":"dma","file":"/src/dma.sv"}]}',
+                encoding="utf-8",
+            )
+            return types.SimpleNamespace(returncode=0, stdout="")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            database = Path(temporary) / "design.uhdm"
+            database.write_bytes(b"uhdm")
+            fake_binding = types.SimpleNamespace(Serializer=Serializer)
+            with (
+                patch.dict("sys.modules", {"uhdm": fake_binding}),
+                patch(
+                    "eda_query.uhdm_runtime.shutil.which",
+                    return_value="/usr/bin/uhdm-export",
+                ),
+                patch("eda_query.uhdm_runtime.subprocess.run", side_effect=run) as call,
+            ):
+                data = snapshot(database)
+            self.assertEqual(data["objects"][0]["name"], "dma")
+            self.assertEqual(call.call_args.args[0][0], "/usr/bin/uhdm-export")
 
 
 if __name__ == "__main__":

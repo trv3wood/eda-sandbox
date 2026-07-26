@@ -37,9 +37,26 @@ case "${profile}" in
     systemc-tlm-agent --help >/dev/null
     ;;
   uhdm)
-    require_tools python3 surelog eda-uhdm eda-uhdm-produce
+    require_tools python3 surelog uhdm-export eda-uhdm eda-uhdm-produce
     python3 -c 'import uhdm; print("  UHDM:    Python binding available")'
+    uhdm-export --version
     eda-uhdm version
+    probe_dir="$(mktemp -d)"
+    trap 'rm -rf "${probe_dir}"' EXIT
+    printf '%s\n' \
+      'module top(input logic clk_i, output logic ready_o);' \
+      '  assign ready_o = clk_i;' \
+      'endmodule' \
+      >"${probe_dir}/top.sv"
+    (
+      cd "${probe_dir}"
+      surelog top.sv -top top -parse -elabuhdm -d uhdm >/dev/null
+      eda-uhdm export slpp_all/surelog.uhdm --output uhdm.json
+      eda-uhdm query slpp_all/surelog.uhdm \
+        --kind modules --module work@top |
+        python3 -c \
+          'import json,sys; assert json.load(sys.stdin)["status"] == "ok"'
+    )
     ;;
   rtl)
     require_tools python3 verilator yosys eda-rtl-produce
