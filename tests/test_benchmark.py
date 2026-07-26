@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 from systemc_tlm_agent.benchmark import (
-    architecture_is_approved, prepare_workspace, report_benchmark,
-    run_benchmark, score_benchmark,
+    _claude_actual_model, _run_claude_filtered, _summarize_claude_jsonl,
+    _summarize_codex_jsonl,
+    architecture_is_approved, extract_case_with_container, prepare_workspace,
+    report_benchmark,
+    repository_root, run_benchmark, SANDBOX_MANIFEST, SANDBOX_ROOT,
+    SANDBOX_TREATMENT, SANDBOX_WORKSPACE, score_benchmark,
 )
 from systemc_tlm_agent.io import dump_json, load_json
 
@@ -25,19 +32,50 @@ class BenchmarkTest(unittest.TestCase):
             work = Path(temporary)
             result = prepare_workspace(work)
             self.assertEqual(result["cases"], 10)
+            config = load_json(work / "benchmark.json")
+            self.assertEqual(
+                config["modeling"]["skill_path"],
+                str(
+                    repository_root()
+                    / "skills/modeling-systemc-tlm/SKILL.md"
+                ),
+            )
             with self.assertRaisesRegex(ValueError, "not locked"):
                 run_benchmark(work, model="gpt-5.6-luna", arm="baseline", trials=1)
             self._prepared(work)
             result = run_benchmark(
                 work, model="luna", arm="skill", trials=1,
-                cases=["i2c"],
+                cases=["i2c"], isolation_mode="bubblewrap-selective",
             )
             self.assertEqual(result["status"], "planned")
             run = load_json(work / "runs/luna/i2c/skill/1/run.json")
             self.assertEqual(run["exit_status"], "planned")
             prompt = (work / "runs/luna/i2c/skill/1/architect.prompt.txt").read_text()
-            self.assertIn("corpus/opentitan/i2c/case.json", prompt)
+            self.assertIn(f"Case manifest: {SANDBOX_MANIFEST}", prompt)
             self.assertIn("modeling-systemc-tlm", prompt)
+            self.assertIn("run targeted local EDA commands", prompt)
+            self.assertIn("Do not claim a tool is unavailable", prompt)
+            command = run["command"]
+            self.assertTrue(command[0].endswith("bwrap"))
+            self.assertIn("--tmpfs", command)
+            self.assertIn("--ro-bind / /", " ".join(command))
+            self.assertIn("--ignore-user-config", command)
+            agent_dir = work / "runs/luna/i2c/skill/1/agent-workspace"
+            self.assertIn(str(agent_dir), command)
+            self.assertEqual(
+                command[command.index("-C") + 1], str(SANDBOX_WORKSPACE)
+            )
+            self.assertIn(str(SANDBOX_TREATMENT / "skill"), command)
+
+            run_benchmark(
+                work, model="luna", arm="baseline", trials=1,
+                cases=["i2c"], isolation_mode="bubblewrap-selective",
+            )
+            baseline = load_json(
+                work / "runs/luna/i2c/baseline/1/run.json"
+            )["command"]
+            self.assertNotIn(str(SANDBOX_TREATMENT / "skill"), baseline)
+            self.assertIn(str(repository_root()), baseline)
 
     def test_implementation_requires_two_approvals(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -56,12 +94,40 @@ class BenchmarkTest(unittest.TestCase):
                 ]
             }))
 
+    @unittest.skipUnless(shutil.which("bwrap") and shutil.which("codex"),
+                         "bubblewrap and codex are required")
+    def test_selective_sandbox_hides_control_data_and_treatment(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary)
+            self._prepared(work)
+            run_benchmark(
+                work, model="luna", arm="baseline", trials=1,
+                cases=["ctrl"], isolation_mode="bubblewrap-selective",
+            )
+            run_dir = work / "runs/luna/ctrl/baseline/1"
+            command = load_json(run_dir / "run.json")["command"]
+            codex_index = len(command) - 1 - command[::-1].index(
+                str(SANDBOX_ROOT / "runner-bin/codex")
+            )
+            probe = command[:codex_index] + [
+                "/bin/sh",
+                "-c",
+                f"test -f {SANDBOX_MANIFEST} && "
+                f"test ! -e {SANDBOX_TREATMENT} && "
+                f"test ! -e {repository_root()}/skills && "
+                f"touch {SANDBOX_WORKSPACE}/probe-ok",
+            ]
+            subprocess.run(probe, check=True)
+            self.assertTrue(
+                (run_dir / "agent-workspace/probe-ok").is_file()
+            )
+
     def test_score_and_report(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             work = Path(temporary)
             self._prepared(work)
             for arm, points in (("baseline", 60), ("skill", 80)):
-                run_benchmark(work, model="gpt-5.6-luna", arm=arm, trials=1,
+                run_benchmark(work, model="luna", arm=arm, trials=1,
                               cases=["ctrl"])
                 run_dir = work / f"runs/luna/ctrl/{arm}/1"
                 score = {
@@ -75,6 +141,116 @@ class BenchmarkTest(unittest.TestCase):
             self.assertEqual(result["delta_points"], 20.0)
             report = report_benchmark(work)
             self.assertTrue(Path(report["report"]).exists())
+
+    def test_jsonl_summary_extracts_usage_and_final_message(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "codex.jsonl"
+            path.write_text(
+                '{"type":"item.completed","item":{"type":"agent_message",'
+                '"text":"done"}}\n'
+                '{"type":"turn.completed","usage":{"input_tokens":10,'
+                '"output_tokens":2}}\n',
+                encoding="utf-8",
+            )
+            usage, message = _summarize_codex_jsonl(path)
+            self.assertEqual(usage, {"input_tokens": 10, "output_tokens": 2})
+            self.assertEqual(message, "done")
+
+    def test_claude_runner_and_container_extraction_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary)
+            self._prepared(work)
+            rtl = work / "sources/chipbench/smoke.sv"
+            rtl.parent.mkdir(parents=True, exist_ok=True)
+            rtl.write_text("module TopModule; endmodule\n", encoding="utf-8")
+            case_path = work / "corpus/chipbench/ctrl/case.json"
+            case = load_json(case_path)
+            case["input_paths"] = [str(rtl)]
+            case["status"] = "ready"
+            dump_json(case_path, case)
+            extraction = extract_case_with_container(
+                work, case="ctrl", top="TopModule",
+                image="localhost/eda-agent:local",
+            )
+            self.assertEqual(extraction["status"], "planned")
+            self.assertIn("podman", extraction["commands"][0][0])
+
+            run_benchmark(
+                work, model="sonnet", runner="claude", arm="baseline",
+                trials=1, cases=["ctrl"],
+                isolation_mode="bubblewrap-selective",
+            )
+            command = load_json(
+                work / "runs/sonnet/ctrl/baseline/1/run.json"
+            )["command"]
+            self.assertIn(str(SANDBOX_ROOT / "runner-bin/claude"), command)
+            self.assertIn("stream-json", command)
+            self.assertNotIn("--safe-mode", command)
+            self.assertNotIn(str(SANDBOX_TREATMENT), command)
+            claude_home = (
+                work
+                / "runs/sonnet/ctrl/baseline/1"
+                / ".claude-runtime"
+            )
+            self.assertIn(str(claude_home), command)
+            self.assertIn(str(Path.home() / ".claude"), command)
+            self.assertNotIn(str(Path.home() / ".claude/agents"), command)
+
+            stream = work / "claude.jsonl"
+            stream.write_text(
+                '{"type":"system","subtype":"init","model":"deepseek"}\n'
+                '{"type":"result","result":"complete",'
+                '"usage":{"input_tokens":5,"output_tokens":1}}\n',
+                encoding="utf-8",
+            )
+            usage, message = _summarize_claude_jsonl(stream)
+            self.assertEqual(usage["input_tokens"], 5)
+            self.assertEqual(message, "complete")
+            self.assertEqual(_claude_actual_model(stream), "deepseek")
+
+    def test_claude_filter_drops_thinking_progress(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            command = [
+                sys.executable,
+                "-c",
+                "print('{\"type\":\"system\","
+                "\"subtype\":\"thinking_tokens\"}');"
+                "print('{\"type\":\"result\",\"result\":\"done\"}')",
+            ]
+            returncode, discarded = _run_claude_filtered(
+                command,
+                cwd=root,
+                jsonl_path=root / "events.jsonl",
+                stderr_path=root / "stderr.log",
+            )
+            self.assertEqual(returncode, 0)
+            self.assertEqual(discarded, 1)
+            self.assertNotIn(
+                "thinking_tokens",
+                (root / "events.jsonl").read_text(encoding="utf-8"),
+            )
+
+    def test_direct_claude_plan_uses_host_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary)
+            self._prepared(work)
+            result = run_benchmark(
+                work, model="sonnet", runner="claude", arm="skill",
+                trials=1, cases=["ctrl"], isolation_mode="none",
+            )
+            run_dir = Path(result["run_directories"][0])
+            metadata = load_json(run_dir / "run.json")
+            prompt = (run_dir / "architect.prompt.txt").read_text(
+                encoding="utf-8"
+            )
+            self.assertEqual(metadata["isolation"], "none")
+            self.assertFalse(metadata["command"][0].endswith("bwrap"))
+            self.assertIn(str(run_dir / "direct-case.json"), prompt)
+            self.assertIn(
+                str(repository_root() / "skills/modeling-systemc-tlm/SKILL.md"),
+                prompt,
+            )
 
 
 if __name__ == "__main__":

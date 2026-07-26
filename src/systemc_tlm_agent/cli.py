@@ -42,10 +42,18 @@ def build_parser() -> argparse.ArgumentParser:
     init = subparsers.add_parser("init", help="create a modeling project manifest")
     init.add_argument("project")
     init.add_argument("--name", required=True)
-    init.add_argument("--top", required=True)
+    init.add_argument("--top", required=True, help="target model/DUT top")
+    init.add_argument(
+        "--reference-top",
+        help="existing golden RTL top used by structural EDA tools",
+    )
     init.add_argument("--docx", action="append", default=[])
     init.add_argument("--xlsx", action="append", default=[])
     init.add_argument("--rtl", action="append", default=[])
+    init.add_argument(
+        "--tb", action="append", default=[],
+        help="non-synthesizable testbench input (repeatable)",
+    )
     init.add_argument("--backend", choices=["auto", "local", "podman"], default="auto")
 
     extract = subparsers.add_parser("extract", help="extract evidence and design facts")
@@ -88,10 +96,12 @@ def command_init(args: argparse.Namespace) -> dict:
     manifest = {
         "schema_version": 1,
         "name": args.name,
-        "top": args.top,
+        "target_top": args.top,
+        "reference_top": getattr(args, "reference_top", None) or args.top,
         "documents": args.docx,
         "registers": args.xlsx,
         "rtl": args.rtl,
+        "testbench": getattr(args, "tb", []),
         "backend": args.backend,
     }
     dump_yaml(paths["manifest"], manifest)

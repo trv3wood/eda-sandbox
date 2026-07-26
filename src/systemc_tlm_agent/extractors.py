@@ -238,25 +238,27 @@ def run_eda_tools(
     *,
     project_dir: Path,
     rtl_files: list[Path],
+    testbench_files: list[Path],
     top: str,
     tools_dir: Path,
 ) -> dict[str, Any]:
     # The command templates are tool integration policy. RTL file lists and the
     # top module come from manifest.yaml rather than being hard-coded.
     relative_rtl = [str(path) for path in rtl_files]
+    relative_testbench = [str(path) for path in testbench_files]
     surelog = _run_tool(
-        ["surelog", *relative_rtl, "-parse", "-d", "uhdm"],
+        ["surelog", *relative_rtl, *relative_testbench, "-parse", "-d", "uhdm"],
         project_dir,
         tools_dir / "surelog.log",
     )
     verilator = _run_tool(
         [
             "verilator",
-            "--xml-only",
+            "--json-only",
             "--top-module",
             top,
-            "--xml-output",
-            str(tools_dir / "verilator.xml"),
+            "--json-only-output",
+            str(tools_dir / "verilator.json"),
             *relative_rtl,
         ],
         project_dir,
@@ -264,8 +266,9 @@ def run_eda_tools(
     )
     yosys_script = (
         "read_verilog -sv "
-        + " ".join(relative_rtl)
-        + f"; hierarchy -check -top {top}; write_json {tools_dir / 'yosys.json'}"
+        + " ".join(json.dumps(path) for path in relative_rtl)
+        + f"; hierarchy -check -top {top}; write_json "
+        + json.dumps(str(tools_dir / "yosys.json"))
     )
     yosys = _run_tool(
         ["yosys", "-p", yosys_script],
@@ -298,8 +301,14 @@ def extract_project(project_dir: Path, *, run_tools: bool = True) -> dict[str, A
         manifest.get("rtl", []),
         directory_suffixes={".v", ".sv"},
     )
+    testbench_files = resolve_inputs(
+        project_dir,
+        manifest.get("testbench", []),
+        directory_suffixes={".v", ".sv"},
+    )
+    all_rtl_files = [*rtl_files, *testbench_files]
     rtl_units = []
-    for path in rtl_files:
+    for path in all_rtl_files:
         evidence, facts = extract_rtl(path, project_dir)
         all_evidence.extend(evidence)
         rtl_units.append(facts)
@@ -307,14 +316,23 @@ def extract_project(project_dir: Path, *, run_tools: bool = True) -> dict[str, A
     paths["facts"].mkdir(parents=True, exist_ok=True)
     dump_json(paths["facts"] / "documents.json", {"documents": documents})
     dump_json(paths["facts"] / "registers.json", {"workbooks": registers})
+    target_top = manifest.get("target_top", manifest.get("top"))
+    reference_top = manifest.get("reference_top") or target_top
+    if not target_top:
+        raise ValueError("manifest requires target_top (or legacy top)")
     rtl_facts = {
-        "top": manifest["top"],
+        "target_top": target_top,
+        "reference_top": reference_top,
+        "top": target_top,
         "files": rtl_units,
+        "design_rtl": [str(path) for path in rtl_files],
+        "testbench": [str(path) for path in testbench_files],
         "tools": (
             run_eda_tools(
                 project_dir=project_dir,
                 rtl_files=rtl_files,
-                top=manifest["top"],
+                testbench_files=testbench_files,
+                top=reference_top,
                 tools_dir=paths["tools"],
             )
             if run_tools and rtl_files
@@ -341,7 +359,8 @@ def extract_project(project_dir: Path, *, run_tools: bool = True) -> dict[str, A
         "document_count": len(documents),
         "register_workbook_count": len(registers),
         "rtl_available": bool(rtl_files),
-        "rtl_file_count": len(rtl_units),
+        "rtl_file_count": len(rtl_files),
+        "testbench_file_count": len(testbench_files),
         "rtl_module_count": sum(len(unit["modules"]) for unit in rtl_units),
         "missing_inputs": [] if rtl_files else ["rtl"],
     }

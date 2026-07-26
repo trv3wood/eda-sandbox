@@ -3,9 +3,10 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from systemc_tlm_agent.cli import command_init
-from systemc_tlm_agent.extractors import extract_project
+from systemc_tlm_agent.extractors import extract_project, run_eda_tools
 from systemc_tlm_agent.generator import generate_model
 from systemc_tlm_agent.io import dump_yaml, load_json, load_yaml, project_paths
 from systemc_tlm_agent.workflow import (
@@ -24,6 +25,32 @@ class Args:
 
 
 class WorkflowTest(unittest.TestCase):
+    @patch("systemc_tlm_agent.extractors._run_tool")
+    def test_eda_commands_support_current_verilator_and_spaced_paths(
+        self, run_tool
+    ) -> None:
+        run_tool.return_value = {"status": "passed"}
+        project = Path("/tmp/project")
+        rtl = project / "Verilog Gen/design.sv"
+        testbench = project / "Verilog Gen/design_test.sv"
+        run_eda_tools(
+            project_dir=project,
+            rtl_files=[rtl],
+            testbench_files=[testbench],
+            top="TopModule",
+            tools_dir=project / "tools",
+        )
+        commands = [call.args[0] for call in run_tool.call_args_list]
+        self.assertIn(str(testbench), commands[0])
+        self.assertIn("--json-only", commands[1])
+        self.assertNotIn("--xml-only", commands[1])
+        self.assertNotIn(str(testbench), commands[1])
+        self.assertIn(
+            'read_verilog -sv "/tmp/project/Verilog Gen/design.sv"',
+            commands[2][2],
+        )
+        self.assertNotIn(str(testbench), commands[2][2])
+
     def test_extract_allows_missing_rtl(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             project = Path(temporary)

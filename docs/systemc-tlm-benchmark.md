@@ -24,6 +24,22 @@ The lock records repository URL, license, commit, and a SHA-256 digest of the
 complete Git tree listing. Populate each generated `corpus/*/*/case.json` with
 its immutable input paths before executing agents.
 
+Generate shared EDA evidence in the existing agent image before either arm:
+
+```bash
+scripts/benchmark-systemc-tlm extract --work ~/Work/eda-sandbox \
+  --case ctrl --top TopModule --reference-top RefModule \
+  --image localhost/eda-agent:local --execute
+```
+
+The command runs Surelog/UHDM, Verilator, and Yosys in the container. Both
+arms receive the same pre-generated `eda-project` result; bubblewrap runs mount
+it read-only, while direct-host runs rely on the benchmark instruction not to
+mutate shared evidence. The LLM never receives Podman permissions. Case
+manifests may list `testbench_paths`; for ChipBench,
+files ending in `_test.sv` or `_tb.sv` are recognized as testbenches for
+backward compatibility.
+
 ## Runs and architecture gate
 
 Without `--execute`, `run` creates an inspectable plan only:
@@ -38,6 +54,23 @@ scripts/benchmark-systemc-tlm run --work ~/Work/eda-sandbox \
 Add `--execute` to invoke `codex exec`. The architecture phase persists its
 prompt, command, timestamps, commit lock, exit status, and JSONL. Before the
 implementation phase, put `architecture-review.json` in each run directory:
+
+Claude Code uses the same corpus, evidence, arms, and gate:
+
+```bash
+scripts/benchmark-systemc-tlm run --work ~/Work/eda-sandbox \
+  --runner claude --model sonnet --arm baseline --case ctrl --trials 1
+scripts/benchmark-systemc-tlm run --work ~/Work/eda-sandbox \
+  --runner claude --model sonnet --arm skill --case ctrl --trials 1
+```
+
+Add `--execute` after inspecting the plans. Claude stays on the host so its
+OAuth session remains usable; only deterministic EDA extraction runs in the
+container. Runner isolation defaults to `none` so Claude Code can retain custom
+model-provider configuration and host EDA tooling. Such runs are prompt-blinded,
+not filesystem-blinded, and `run.json` records that limitation. Use
+`--isolation bubblewrap-selective` only when the runner configuration is known
+to work inside the restricted filesystem.
 
 ```json
 {

@@ -18,15 +18,19 @@ Initialize:
 
 ```bash
 systemc-tlm-agent init PROJECT --name NAME --top RTL_TOP \
-  --docx spec.docx --xlsx registers.xlsx [--rtl rtl]
+  --reference-top GOLDEN_TOP --docx spec.docx --xlsx registers.xlsx \
+  [--rtl rtl] [--tb testbench.sv]
 ```
 
 The manifest paths are relative to `PROJECT`. RTL entries accept files, glob
 patterns, or directories. Directories are searched recursively for `.v` and
-`.sv` files. RTL may be omitted when it is not yet available. Extraction then
-continues with the available documents/register maps, records RTL as a missing
-input, and skips structural EDA tools. Extraction is deterministic and records
-source digests and locators. Re-run extraction whenever an input changes.
+`.sv` files. `target_top` is the DUT/model to generate; `reference_top` is an
+existing golden RTL module used for structural EDA. Testbench inputs are parsed
+by Surelog but excluded from Verilator/Yosys synthesis-oriented views. RTL may
+be omitted when it is not yet available. Extraction then continues with the
+available documents/register maps, records RTL as a missing input, and skips
+structural EDA tools. Extraction is deterministic and records source digests
+and locators. Re-run extraction whenever an input changes.
 
 Architecture is a human/agent-authored decision artifact. Each complete claim
 has one or more `evidence_ids`. Missing RTL is unresolved evidence, not

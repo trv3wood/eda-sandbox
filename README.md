@@ -72,7 +72,8 @@ podman compose build
 Project files should live in `workspace/`. The host directory is mounted at
 `/workspace` so source changes persist after a container exits.
 
-The conda-forge environment contains Python 3.10, CMake, Ninja, UHDM,
+The conda-forge environment contains Python 3.10, CMake, Ninja, the UHDM
+library,
 Verilator, and Yosys. The separate Surelog environment contains Surelog 1.84
 and Python 3.11 only for the prebuilt Surelog package. Do not install the
 unrelated PyPI package named `surelog`; the container uses the CHIPS Alliance

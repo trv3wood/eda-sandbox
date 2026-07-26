@@ -57,7 +57,7 @@ def create_architecture_draft(project_dir: Path) -> dict[str, Any]:
     architecture = {
         "schema_version": 1,
         "project": manifest["name"],
-        "top": manifest["top"],
+        "top": manifest.get("target_top", manifest.get("top")),
         "status": "draft",
         "categories": categories,
         "model": {

@@ -28,13 +28,37 @@ if sys.version_info[:2] != (3, 10):
     raise SystemExit(f"ERROR: expected Python 3.10, got {sys.version.split()[0]}")
 PY
 
-printf '  Surelog: %s\n' "$(surelog -version 2>&1 | head -n 1)"
+surelog_probe_dir="$(mktemp -d)"
+trap 'rm -rf "${surelog_probe_dir}"' EXIT
+if ! surelog_output="$(
+    cd "${surelog_probe_dir}"
+    surelog -version 2>&1
+)"; then
+    printf 'ERROR: Surelog failed to start:\n%s\n' "${surelog_output}" >&2
+    exit 1
+fi
+surelog_version_line="$(
+    sed -n 's/^[[:space:]]*VERSION:[[:space:]]*/VERSION: /p' \
+        "${surelog_probe_dir}/slpp_all/surelog.log" |
+        head -n 1
+)"
+if [[ -z "${surelog_version_line}" ]]; then
+    printf 'ERROR: Surelog output did not contain a version:\n%s\n' \
+        "${surelog_output}" >&2
+    exit 1
+fi
+printf '  Surelog: %s\n' "${surelog_version_line}"
 
-python3 - <<'PY'
-from uhdm import uhdm
-
-print(f"  UHDM:    Python wrapper loaded ({uhdm.__name__})")
-PY
+uhdm_library="$(
+    find /opt/conda/envs/eda/lib -maxdepth 1 \
+        \( -name 'libuhdm.so*' -o -name 'libuhdm.a' \) \
+        -print -quit
+)"
+if [[ -z "${uhdm_library}" ]]; then
+    printf 'ERROR: UHDM library not found in the eda environment\n' >&2
+    exit 1
+fi
+printf '  UHDM:    %s\n' "${uhdm_library}"
 
 for tool in "${optional[@]}"; do
   if command -v "$tool" >/dev/null 2>&1; then
