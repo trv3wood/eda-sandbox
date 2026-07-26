@@ -51,8 +51,8 @@ RUN cmake -S /tmp/uhdm-src -B /tmp/uhdm-build -G Ninja \
         -DPython3_EXECUTABLE=/opt/conda/envs/uhdm/bin/python \
         -DCMAKE_INSTALL_PREFIX=/opt/conda/envs/uhdm && \
     cmake --build /tmp/uhdm-build --parallel && \
-    cmake --install /tmp/uhdm-build && \
-    /opt/conda/envs/uhdm/bin/python -c "from uhdm import uhdm; print(uhdm.Serializer)"
+    cmake --install /tmp/uhdm-build
+RUN /opt/conda/envs/uhdm/bin/python -c "import uhdm; print(uhdm.Serializer)"
 
 FROM ubuntu-base AS eda-uhdm
 ARG IMAGE_REVISION=unknown
@@ -65,7 +65,7 @@ ENV MAMBA_ROOT_PREFIX=/opt/conda \
     PATH=/opt/conda/envs/uhdm/bin:/usr/local/bin:/usr/bin \
     LD_LIBRARY_PATH=/opt/conda/envs/uhdm/lib \
     IMAGE_REVISION=${IMAGE_REVISION}
-RUN python3 -c "from uhdm import uhdm; print(uhdm.Serializer)"
+RUN python3 -c "import uhdm; print(uhdm.Serializer)"
 CMD ["/bin/bash"]
 
 # Verilator/Yosys are independent from the semantic UHDM producer.

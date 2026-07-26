@@ -38,7 +38,7 @@ case "${profile}" in
     ;;
   uhdm)
     require_tools python3 surelog eda-uhdm eda-uhdm-produce
-    python3 -c 'from uhdm import uhdm; print("  UHDM:    Python binding available")'
+    python3 -c 'import uhdm; print("  UHDM:    Python binding available")'
     eda-uhdm version
     ;;
   rtl)
