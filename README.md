@@ -9,8 +9,8 @@ Ubuntu 24.04 工具链按职责拆成四个独立镜像：
 - `eda-enterprise`：Rocky Linux 8，用于 RHEL 系列兼容性检查。
 
 Ubuntu agent 使用发行版 Python 3.12；UHDM 镜像使用同版本的 conda-forge
-`surelog`、`uhdm` 和 Python binding 二进制包，不编译 Surelog。商业 EDA
-工具有意排除。
+`surelog` 和 `uhdm` 二进制包。conda 包未携带可选的 Python wrapper，因此
+wrapper 在临时 builder 中生成；Surelog 本身不再编译。商业 EDA 工具有意排除。
 
 ## 构建与运行
 
@@ -31,8 +31,8 @@ podman-compose run --rm eda-rtl scripts/regress.sh
 ```
 
 SCC 构建耗时较长，通常从 GitHub Container Registry 拉取 CI 产物；它仅在
-版本 tag 或手工 workflow dispatch 时构建。Surelog/UHDM 和 RTL 镜像只解析
-二进制包。本地只构建当前需要的轻量目标：
+版本 tag 或手工 workflow dispatch 时构建。Surelog 和 RTL 工具来自二进制包；
+UHDM 镜像只额外编译 Python wrapper。本地只构建当前需要的轻量目标：
 
 ```bash
 podman-compose build eda-agent

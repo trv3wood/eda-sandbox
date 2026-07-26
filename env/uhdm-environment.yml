@@ -6,4 +6,5 @@ dependencies:
   - surelog=1.84
   - uhdm=1.84
   - jsonschema
+  - orderedmultidict
   - pyyaml

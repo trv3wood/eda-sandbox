@@ -74,7 +74,7 @@ def _direction(value: Any) -> str:
 
 def snapshot(path: Path, *, source_root: Path | None = None) -> dict[str, Any]:
     try:
-        import uhdm  # type: ignore[import-not-found]
+        from uhdm import uhdm  # type: ignore[import-not-found]
     except ImportError as exc:
         raise RuntimeError(
             "UHDM Python binding is unavailable; use the eda-uhdm image"
@@ -213,7 +213,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         if args.command == "version":
-            import uhdm  # type: ignore[import-not-found]
+            from uhdm import uhdm  # type: ignore[import-not-found]
 
             print(f"eda-uhdm schema 1; binding={uhdm.__file__}")
             return 0

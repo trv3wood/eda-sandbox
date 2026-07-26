@@ -17,10 +17,9 @@ RUN python3 -m pip install --break-system-packages --no-cache-dir /opt/systemc-a
 ENV IMAGE_REVISION=${IMAGE_REVISION}
 CMD ["/bin/bash"]
 
-# Surelog, UHDM, and the Python binding must share one Python ABI. Current
-# conda-forge packages provide a Python 3.12 build, so no C++ build is needed.
-FROM ubuntu-base AS eda-uhdm
-ARG IMAGE_REVISION=unknown
+# Binary Surelog and UHDM runtime. The conda UHDM package does not include its
+# optional SWIG wrapper, which is added in the next disposable builder.
+FROM ubuntu-base AS uhdm-runtime
 ARG MICROMAMBA_VERSION=2.6.2-1
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -35,14 +34,38 @@ RUN curl -fsSL \
         --file /tmp/uhdm-environment.yml && \
     micromamba clean --all --yes && \
     rm -f /tmp/uhdm-environment.yml
+
+FROM uhdm-runtime AS uhdm-python-builder
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        build-essential cmake git ninja-build python3-dev swig && \
+    rm -rf /var/lib/apt/lists/*
+RUN git clone --depth 1 --branch v1.84 --recurse-submodules \
+        --shallow-submodules \
+        https://github.com/chipsalliance/UHDM.git /tmp/uhdm-src
+RUN cmake -S /tmp/uhdm-src -B /tmp/uhdm-build -G Ninja \
+        -DUHDM_WITH_PYTHON=ON \
+        -DBUILD_SHARED_LIBS=ON \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_PREFIX_PATH=/opt/conda/envs/uhdm \
+        -DPython3_EXECUTABLE=/opt/conda/envs/uhdm/bin/python \
+        -DCMAKE_INSTALL_PREFIX=/opt/conda/envs/uhdm && \
+    cmake --build /tmp/uhdm-build --parallel && \
+    cmake --install /tmp/uhdm-build && \
+    /opt/conda/envs/uhdm/bin/python -c "from uhdm import uhdm; print(uhdm.Serializer)"
+
+FROM ubuntu-base AS eda-uhdm
+ARG IMAGE_REVISION=unknown
+COPY --from=uhdm-python-builder /opt/conda/envs/uhdm /opt/conda/envs/uhdm
 COPY pyproject.toml /opt/systemc-agent/
 COPY src /opt/systemc-agent/src
 COPY scripts/regress.sh /opt/systemc-agent/scripts/regress.sh
 RUN /opt/conda/envs/uhdm/bin/python -m pip install --no-deps /opt/systemc-agent
 ENV MAMBA_ROOT_PREFIX=/opt/conda \
     PATH=/opt/conda/envs/uhdm/bin:/usr/local/bin:/usr/bin \
+    LD_LIBRARY_PATH=/opt/conda/envs/uhdm/lib \
     IMAGE_REVISION=${IMAGE_REVISION}
-RUN python3 -c "import uhdm"
+RUN python3 -c "from uhdm import uhdm; print(uhdm.Serializer)"
 CMD ["/bin/bash"]
 
 # Verilator/Yosys are independent from the semantic UHDM producer.
