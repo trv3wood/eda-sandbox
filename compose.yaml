@@ -38,3 +38,12 @@ services:
     working_dir: /workspace
     volumes:
       - .:/workspace
+
+  eda-enterprise:
+    build:
+      context: .
+      dockerfile: Dockerfile.rocky8
+    image: localhost/eda-enterprise:local
+    working_dir: /workspace
+    volumes:
+      - .:/workspace

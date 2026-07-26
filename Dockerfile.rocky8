@@ -1,12 +1,15 @@
 FROM rockylinux:8
 
 ARG MICROMAMBA_VERSION=2.6.2-1
+ARG IMAGE_REVISION=unknown
 
 ENV LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
     TZ=UTC \
     MAMBA_ROOT_PREFIX=/opt/conda \
-    PATH=/opt/conda/envs/eda/bin:/usr/local/bin:$PATH
+    PATH=/opt/conda/envs/eda/bin:/usr/local/bin:$PATH \
+    LD_LIBRARY_PATH=/opt/conda/envs/eda/lib \
+    IMAGE_REVISION=${IMAGE_REVISION}
 
 RUN dnf -y install \
         dnf-plugins-core \
@@ -25,19 +28,16 @@ RUN dnf -y install \
     dnf clean all && \
     rm -rf /var/cache/dnf
 
-COPY env/eda-environment.yml env/surelog-environment.yml /tmp/
+COPY env/rocky8-environment.yml /tmp/rocky8-environment.yml
 
 RUN curl -fsSL \
         "https://github.com/mamba-org/micromamba-releases/releases/download/${MICROMAMBA_VERSION}/micromamba-linux-64" \
         -o /usr/local/bin/micromamba && \
     chmod 0755 /usr/local/bin/micromamba && \
-    micromamba create --yes --prefix /opt/conda/envs/eda --file /tmp/eda-environment.yml && \
-    micromamba create --yes --prefix /opt/conda/envs/surelog --file /tmp/surelog-environment.yml && \
+    micromamba create --yes --prefix /opt/conda/envs/eda \
+        --file /tmp/rocky8-environment.yml && \
     micromamba clean --all --yes && \
-    rm -f /tmp/eda-environment.yml /tmp/surelog-environment.yml
-
-COPY scripts/surelog /usr/local/bin/surelog
-RUN chmod 0755 /usr/local/bin/surelog
+    rm -f /tmp/rocky8-environment.yml
 
 COPY tools/uhdm_export/main.cpp /tmp/uhdm-export.cpp
 RUN g++ -std=c++17 -O2 \
@@ -45,7 +45,10 @@ RUN g++ -std=c++17 -O2 \
         /tmp/uhdm-export.cpp \
         -L/opt/conda/envs/eda/lib -luhdm \
         -Wl,-rpath,/opt/conda/envs/eda/lib \
-        -o /usr/local/bin/uhdm-export
+        -o /usr/local/bin/uhdm-export && \
+    uhdm-export --version
+
+COPY scripts/regress.sh /opt/eda-sandbox/scripts/regress.sh
 
 WORKDIR /workspace
 
