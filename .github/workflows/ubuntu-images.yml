@@ -5,6 +5,7 @@ on:
     paths:
       - Dockerfile.ubuntu
       - env/rtl-environment.yml
+      - env/uhdm-environment.yml
       - pyproject.toml
       - src/**
       - scripts/regress.sh

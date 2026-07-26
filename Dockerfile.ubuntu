@@ -17,43 +17,30 @@ RUN python3 -m pip install --break-system-packages --no-cache-dir /opt/systemc-a
 ENV IMAGE_REVISION=${IMAGE_REVISION}
 CMD ["/bin/bash"]
 
-# Surelog/UHDM with the official Python wrapper. Compilation happens only in
-# this builder and is suitable for a GitHub-hosted runner.
-FROM ubuntu-base AS uhdm-builder
-# Surelog v1.86. Pin the commit instead of confusing its CMake/conda version
-# with a Git ref.
-ARG SURELOG_COMMIT=1efe418724de9dc36613869e5d0e5e6ac5cca972
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-        ant bison build-essential ca-certificates cmake default-jre flex git \
-        libcapnp-dev libfl-dev libreadline-dev libssl-dev libtcl8.6 \
-        ninja-build pkg-config python3 python3-dev python3-pip swig tcl-dev \
-        uuid-dev zlib1g-dev && \
-    rm -rf /var/lib/apt/lists/*
-RUN git init /tmp/surelog && \
-    git -C /tmp/surelog remote add origin \
-        https://github.com/chipsalliance/Surelog.git && \
-    git -C /tmp/surelog fetch --depth 1 origin "${SURELOG_COMMIT}" && \
-    git -C /tmp/surelog checkout --detach FETCH_HEAD && \
-    git -C /tmp/surelog submodule update --init --recursive --depth 1
-RUN make -C /tmp/surelog -j"$(nproc)" release_with_python && \
-    make -C /tmp/surelog install PREFIX=/opt/surelog
-
+# Surelog, UHDM, and the Python binding must share one Python ABI. Current
+# conda-forge packages provide a Python 3.12 build, so no C++ build is needed.
 FROM ubuntu-base AS eda-uhdm
 ARG IMAGE_REVISION=unknown
+ARG MICROMAMBA_VERSION=2.6.2-1
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        libcapnp-dev libgcc-s1 libstdc++6 libtcl8.6 python3 python3-pip \
-        uuid-runtime zlib1g && \
+        ca-certificates curl && \
     rm -rf /var/lib/apt/lists/*
-COPY --from=uhdm-builder /opt/surelog /opt/surelog
+COPY env/uhdm-environment.yml /tmp/uhdm-environment.yml
+RUN curl -fsSL \
+        "https://github.com/mamba-org/micromamba-releases/releases/download/${MICROMAMBA_VERSION}/micromamba-linux-64" \
+        -o /usr/local/bin/micromamba && \
+    chmod 0755 /usr/local/bin/micromamba && \
+    micromamba create --yes --prefix /opt/conda/envs/uhdm \
+        --file /tmp/uhdm-environment.yml && \
+    micromamba clean --all --yes && \
+    rm -f /tmp/uhdm-environment.yml
 COPY pyproject.toml /opt/systemc-agent/
 COPY src /opt/systemc-agent/src
 COPY scripts/regress.sh /opt/systemc-agent/scripts/regress.sh
-RUN python3 -m pip install --break-system-packages --no-cache-dir /opt/systemc-agent
-ENV PATH=/opt/surelog/bin:/usr/local/bin:/usr/bin \
-    LD_LIBRARY_PATH=/opt/surelog/lib \
-    PYTHONPATH=/opt/surelog/lib/python3.12/site-packages:/opt/surelog/lib/python \
+RUN /opt/conda/envs/uhdm/bin/python -m pip install --no-deps /opt/systemc-agent
+ENV MAMBA_ROOT_PREFIX=/opt/conda \
+    PATH=/opt/conda/envs/uhdm/bin:/usr/local/bin:/usr/bin \
     IMAGE_REVISION=${IMAGE_REVISION}
 RUN python3 -c "import uhdm"
 CMD ["/bin/bash"]
