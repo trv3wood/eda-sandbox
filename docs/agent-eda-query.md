@@ -36,6 +36,12 @@ eda-uhdm serve tools/surelog-work/slpp_all/surelog.uhdm
 paying deserialization cost on every agent-loop query. `export` remains the
 deterministic, hashable cache and benchmark evidence format.
 
+UHDM v1.84's SWIG wrapper can restore a database but does not expose
+`Serializer.AllObjects()`. The `eda-uhdm` image therefore also contains the
+tracked, reproducibly built `uhdm-export` C++ adapter. `export`, `query`, and
+`serve` use it transparently for snapshot traversal when that Python method is
+absent; temporary snapshots are removed after loading.
+
 ## CLI
 
 ```bash

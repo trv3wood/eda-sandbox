@@ -3,7 +3,10 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import shutil
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -72,6 +75,55 @@ def _direction(value: Any) -> str:
     )
 
 
+def _normalize_source_paths(
+    data: dict[str, Any], source_root: Path | None
+) -> dict[str, Any]:
+    if source_root is None:
+        return data
+    root = source_root.resolve()
+    for record in data.get("objects", []):
+        value = record.get("file")
+        if not value:
+            continue
+        try:
+            record["file"] = str(Path(value).resolve().relative_to(root))
+        except ValueError:
+            pass
+    return data
+
+
+def _exporter_snapshot(
+    path: Path, source_root: Path | None = None
+) -> dict[str, Any]:
+    executable = shutil.which("uhdm-export")
+    if not executable:
+        raise RuntimeError(
+            "UHDM binding does not expose Serializer.AllObjects() and "
+            "uhdm-export is unavailable"
+        )
+    with tempfile.TemporaryDirectory(prefix="eda-uhdm-") as temporary:
+        output = Path(temporary) / "uhdm.json"
+        result = subprocess.run(
+            [executable, str(path.resolve()), str(output)],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=False,
+        )
+        if result.returncode:
+            raise RuntimeError(
+                f"uhdm-export failed with exit code {result.returncode}: "
+                f"{result.stdout.strip()}"
+            )
+        try:
+            data = json.loads(output.read_text(encoding="utf-8"))
+        except (FileNotFoundError, json.JSONDecodeError) as exc:
+            raise RuntimeError("uhdm-export produced invalid JSON") from exc
+    if data.get("format") != "uhdm-json" or not isinstance(data.get("objects"), list):
+        raise RuntimeError("uhdm-export produced an unsupported snapshot")
+    return _normalize_source_paths(data, source_root)
+
+
 def snapshot(path: Path, *, source_root: Path | None = None) -> dict[str, Any]:
     try:
         import uhdm  # type: ignore[import-not-found]
@@ -80,6 +132,8 @@ def snapshot(path: Path, *, source_root: Path | None = None) -> dict[str, Any]:
             "UHDM Python binding is unavailable; use the eda-uhdm image"
         ) from exc
     serializer = uhdm.Serializer()
+    if not callable(getattr(serializer, "AllObjects", None)):
+        return _exporter_snapshot(path, source_root)
     designs = serializer.Restore(str(path.resolve()))
     if not designs:
         raise ValueError("UHDM database contains no design")
@@ -128,12 +182,12 @@ def snapshot(path: Path, *, source_root: Path | None = None) -> dict[str, Any]:
                 _call(typespec, "VpiName", "") or _call(typespec, "VpiDefName", "")
             )
         records.append(record)
-    return {
+    return _normalize_source_paths({
         "schema_version": 1,
         "format": "uhdm-json",
         "source": path.name,
         "objects": records,
-    }
+    }, source_root)
 
 
 def _digest(path: Path) -> str:
