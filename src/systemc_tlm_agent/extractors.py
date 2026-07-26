@@ -279,7 +279,11 @@ def run_eda_tools(
     uhdm_path = surelog_work / "slpp_all" / "surelog.uhdm"
     if surelog["status"] == "passed" and uhdm_path.is_file():
         uhdm = _run_tool(
-            ["uhdm-export", str(uhdm_path), str(tools_dir / "uhdm.json")],
+            [
+                "eda-uhdm", "export", str(uhdm_path),
+                "--output", str(tools_dir / "uhdm.json"),
+                "--source-root", str(project_dir),
+            ],
             project_dir,
             tools_dir / "uhdm-export.log",
         )

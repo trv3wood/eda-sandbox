@@ -1,47 +1,40 @@
 services:
-  eda-fast:
-    build:
-      context: .
-      dockerfile: Dockerfile.ubuntu
-      target: fast
-    image: eda-fast:local
-    working_dir: /workspace
-    volumes:
-      - .:/workspace
-    stdin_open: true
-    tty: true
-
-  eda-scc:
-    build:
-      context: .
-      dockerfile: Dockerfile.ubuntu
-      target: scc
-    image: eda-scc:local
-    working_dir: /workspace
-    volumes:
-      - .:/workspace
-    stdin_open: true
-    tty: true
-
   eda-agent:
     build:
       context: .
       dockerfile: Dockerfile.ubuntu
       target: agent
-    image: eda-agent:local
+    image: localhost/eda-agent:local
     working_dir: /workspace
     volumes:
       - .:/workspace
-    stdin_open: true
-    tty: true
 
-  eda-enterprise:
+  eda-uhdm:
     build:
       context: .
-      dockerfile: Dockerfile.rocky8
-    image: eda-enterprise:local
+      dockerfile: Dockerfile.ubuntu
+      target: eda-uhdm
+    image: localhost/eda-uhdm:local
     working_dir: /workspace
     volumes:
       - .:/workspace
-    stdin_open: true
-    tty: true
+
+  eda-rtl:
+    build:
+      context: .
+      dockerfile: Dockerfile.ubuntu
+      target: rtl-tools
+    image: localhost/eda-rtl:local
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+
+  eda-scc:
+    build:
+      context: .
+      dockerfile: Dockerfile.ubuntu
+      target: eda-scc
+    image: localhost/eda-scc:local
+    working_dir: /workspace
+    volumes:
+      - .:/workspace

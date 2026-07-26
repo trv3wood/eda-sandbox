@@ -1,50 +1,51 @@
 # 开源 EDA 沙盒
 
-本仓库为相同的 EDA 实验提供了几个小型容器环境：
+Ubuntu 24.04 工具链按职责拆成四个独立镜像：
 
-- `eda-fast`：Ubuntu 24.04，用于快速开发和发行版软件包。
-- `eda-scc`：Ubuntu 24.04，包含与 `eda-fast` 相同的快速工具链，外加已编译的 SCC/SystemC 前缀。
-- `eda-agent`：Ubuntu 24.04，基于 eda-scc，包含用于智能体（agent）使用的文档处理 Python 库。
+- `eda-agent`：工作流、benchmark 和离线 JSON 查询；不含 EDA 编译器。
+- `eda-uhdm`：Surelog 和 UHDM Python binding，负责语义数据库生成与查询。
+- `eda-rtl`：Verilator 和 Yosys。
+- `eda-scc`：SystemC/SCC 编译与验证；Conan 缓存只存在于 builder。
 - `eda-enterprise`：Rocky Linux 8，用于 RHEL 系列兼容性检查。
 
-容器使用预构建的 conda-forge 软件包来提供 Surelog 和 UHDM，而非在镜像中编译这些 C++ 项目。主 `eda` 环境使用 Python 3.10。Surelog 1.84 目前仅有 Python 3.11/3.12 的 Linux conda 构建版本，因此安装在独立的环境中，通过 `surelog` 包装器暴露使用。商业 EDA 工具被有意排除在外。
+Ubuntu 镜像使用发行版 Python 3.12。UHDM binding 与 Surelog 在专用 builder
+中一起编译，运行镜像不携带源码和构建缓存。商业 EDA 工具有意排除。
 
 ## 构建与运行
 
 使用 Docker：
 
 ```bash
-docker compose build
-docker compose run --rm eda-fast bash scripts/regress.sh
-docker compose run --rm eda-scc bash scripts/regress.sh
-docker compose run --rm eda-enterprise bash scripts/regress.sh
+docker compose build eda-agent eda-rtl
+docker compose run --rm eda-agent scripts/regress.sh
+docker compose run --rm eda-rtl scripts/regress.sh
 ```
 
 使用 Podman（本环境推荐）：
 
 ```bash
-podman-compose build
-podman-compose run --rm eda-fast bash scripts/regress.sh
-podman-compose run --rm eda-scc bash scripts/regress.sh
-podman-compose run --rm eda-enterprise bash scripts/regress.sh
+podman-compose build eda-agent eda-rtl
+podman-compose run --rm eda-agent scripts/regress.sh
+podman-compose run --rm eda-rtl scripts/regress.sh
 ```
 
-`eda-fast` 目标仅安装预构建软件包。`eda-scc` 目标额外增加了一个构建阶段，该阶段会检出固定版本的 SCC 发行版 `2026.05` 并使用 Conan 和 CMake 进行构建，与 SCC 官方的 Ubuntu 24.04 测试镜像保持一致。
-仅在需要 SCC 时才构建它：
+Surelog/UHDM 和 SCC 构建耗时较长。通常从 GitHub Container Registry
+拉取 CI 产物；SCC 仅在版本 tag 或手工 workflow dispatch 时构建。本地只构建
+当前需要的轻量目标：
 
 ```bash
-podman-compose build eda-fast
-podman-compose build eda-scc
+podman-compose build eda-agent
+podman-compose build eda-rtl
 ```
 
 如果只需要构建镜像，可以直接使用 Podman 的原生构建命令。这不需要 Docker 兼容的 API socket：
 
 ```bash
-podman build -f Dockerfile.ubuntu -t eda-fast:local .
-podman build -f Dockerfile.ubuntu --target scc -t eda-scc:local .
+podman build -f Dockerfile.ubuntu --target agent -t eda-agent:local .
+podman build -f Dockerfile.ubuntu --target rtl-tools -t eda-rtl:local .
 podman build -f Dockerfile.rocky8 -t eda-enterprise:local .
-podman run --rm -it -v "$PWD:/workspace" eda-fast
-podman run --rm -it -v "$PWD:/workspace" eda-scc
+podman run --rm -it -v "$PWD:/workspace" eda-agent:local
+podman run --rm -it -v "$PWD:/workspace" eda-rtl:local
 podman run --rm -it -v "$PWD:/workspace" eda-enterprise
 ```
 
@@ -59,7 +60,8 @@ podman compose build
 
 项目文件应放置在 `workspace/` 目录中。宿主机目录挂载在 `/workspace`，因此源代码的修改在容器退出后仍然保留。
 
-conda-forge 环境包含 Python 3.10、CMake、Ninja、UHDM 库、Verilator 和 Yosys。独立的 Surelog 环境仅包含 Surelog 1.84 和 Python 3.11，专门用于预构建的 Surelog 软件包。请勿安装 PyPI 上无关的名为 `surelog` 的软件包；容器使用的是 CHIPS Alliance 的 Surelog 可执行文件。
+`.github/workflows/ubuntu-images.yml` 构建 `linux/amd64` GHCR 镜像，复用
+BuildKit/GHA cache，并强制单镜像小于 2 GiB（`eda-agent` 小于 500 MiB）。
 
 ## 适用范围
 

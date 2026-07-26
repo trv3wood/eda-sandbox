@@ -24,10 +24,14 @@ scripts/benchmark-systemc-tlm lock --work ~/Work/eda-sandbox
 ```bash
 scripts/benchmark-systemc-tlm extract --work ~/Work/eda-sandbox \
   --case ctrl --top TopModule --reference-top RefModule \
-  --image localhost/eda-agent:local --execute
+  --agent-image localhost/eda-agent:local \
+  --uhdm-image localhost/eda-uhdm:local \
+  --rtl-image localhost/eda-rtl:local --execute
 ```
 
-该命令在容器中运行 Surelog/UHDM、Verilator 和 Yosys。每次运行收到一个中立包，仅包含解析器原生日志、JSON/UHDM 输出和清洗过的状态摘要。实验组生成的 `facts/`、`evidence.jsonl`、合约、manifest、模型和 CLI 命令记录绝不会被送入任一实验组。Bubblewrap 运行以只读方式挂载中立包；直接宿主机运行依靠基准测试指令不修改它。LLM 永远不会收到 Podman 权限。用例 manifest 可列出 `testbench_paths`；对于 ChipBench，以 `_test.sv` 或 `_tb.sv` 结尾的文件被识别为测试平台以保持向后兼容。
+五步流程分别初始化/提取文本、生成 UHDM、生成 RTL 工具视图，再合并 producer
+记录。容器之间仅共享 benchmark work tree，不在容器内启动 Podman。`--image`
+仍作为兼容选项，可把同一旧镜像用于所有角色。
 
 ## 运行与架构门控
 

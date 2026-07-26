@@ -21,7 +21,9 @@
       "properties": {
         "path": {"type": "string", "minLength": 1},
         "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-        "format": {"enum": ["uhdm-json", "yosys-json", "verilator-json"]}
+        "format": {
+          "enum": ["uhdm-binary", "uhdm-json", "yosys-json", "verilator-json"]
+        }
       }
     },
     "status": {"enum": ["ok", "empty", "unsupported", "error"]},

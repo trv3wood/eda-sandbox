@@ -150,10 +150,13 @@ def extract_case_with_container(
     case: str,
     top: str,
     reference_top: str | None = None,
-    image: str,
+    agent_image: str = "localhost/eda-agent:local",
+    uhdm_image: str = "localhost/eda-uhdm:local",
+    rtl_image: str = "localhost/eda-rtl:local",
+    image: str | None = None,
     execute: bool = False,
 ) -> dict[str, Any]:
-    """Plan or run deterministic EDA extraction in the pinned agent image."""
+    """Plan or run extraction with role-specific, independently built images."""
     work = work.resolve()
     _assert_ready(work)
     manifest_path = _case_manifest(work, case)
@@ -184,7 +187,9 @@ def extract_case_with_container(
             raise ValueError(f"container input must be under --work: {path}") from exc
     project = manifest_path.parent / "eda-project"
     container_project = Path("/benchmark-work") / project.relative_to(work)
-    agent_cli = "/agent-repo/scripts/systemc-tlm-agent"
+    if image:
+        agent_image = uhdm_image = rtl_image = image
+    agent_cli = "systemc-tlm-agent"
     init = [
         agent_cli, "init", str(container_project),
         "--name", case, "--top", top, "--backend", "local",
@@ -203,23 +208,38 @@ def extract_case_with_container(
     if execute and podman is None:
         raise RuntimeError("podman is required for container extraction")
     podman = podman or "podman"
-    prefix = [
-        podman, "run", "--rm",
-        "-v", f"{work}:/benchmark-work:Z",
-        "-v", f"{repository_root()}:/agent-repo:ro",
-        "-v", f"{repository_root() / 'scripts/surelog'}:/usr/local/bin/surelog:ro",
-        "-w", "/benchmark-work",
-        image,
-    ]
+    def prefix(selected_image: str) -> list[str]:
+        return [
+            podman, "run", "--rm",
+            "-v", f"{work}:/benchmark-work:Z",
+            "-w", "/benchmark-work",
+            selected_image,
+        ]
+
     commands = [
-        prefix + init,
-        prefix + [agent_cli, "extract", str(container_project)],
+        prefix(agent_image) + init,
+        prefix(agent_image) + [
+            agent_cli, "extract", str(container_project), "--skip-tools",
+        ],
+        prefix(uhdm_image) + [
+            "eda-uhdm-produce", str(container_project),
+        ],
+        prefix(rtl_image) + [
+            "eda-rtl-produce", str(container_project),
+        ],
+        prefix(agent_image) + [
+            agent_cli, "tools", "finalize", str(container_project),
+        ],
     ]
     result = {
         "case": case,
         "top": top,
         "reference_top": reference_top or top,
-        "image": image,
+        "images": {
+            "agent": agent_image,
+            "uhdm": uhdm_image,
+            "rtl": rtl_image,
+        },
         "project": str(project),
         "commands": commands,
         "status": "planned",
@@ -229,14 +249,25 @@ def extract_case_with_container(
             raise FileExistsError(
                 f"extraction project already exists, preserve or remove it: {project}"
             )
-        for command in commands:
-            subprocess.run(command, check=True)
+        returncodes = []
+        for index, command in enumerate(commands):
+            completed = subprocess.run(command, check=False)
+            returncodes.append(completed.returncode)
+            if completed.returncode and index not in {2, 3}:
+                raise subprocess.CalledProcessError(
+                    completed.returncode, command
+                )
         summary = load_json(project / ".systemc-agent/facts/summary.json")
         rtl_facts = load_json(project / ".systemc-agent/facts/rtl.json")
         result.update({
-            "status": "completed",
+            "status": (
+                "completed_with_tool_failures"
+                if any(returncodes[index] for index in (2, 3))
+                else "completed"
+            ),
             "summary": summary,
             "tools": rtl_facts.get("tools", {}),
+            "returncodes": returncodes,
         })
         dump_json(project / "container-extraction.json", result)
     return result

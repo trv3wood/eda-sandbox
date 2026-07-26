@@ -7,7 +7,7 @@ network, or evaluate arbitrary expressions.
 
 ## Boundary
 
-Version 1 reads only:
+The offline reader consumes:
 
 - `BUNDLE/tools/uhdm.json`
 - `BUNDLE/tools/yosys.json`
@@ -20,6 +20,21 @@ reconstructed from another backend.
 The layer does not replace RTL or specifications as design authority. It makes
 elaborated hierarchy, ports, cells, signals, AST nodes, and source locations
 cheap to inspect and cite.
+
+`eda-uhdm` is the live companion in the dedicated UHDM image. It restores the
+Surelog database through the official Python binding:
+
+```bash
+eda-uhdm export tools/surelog-work/slpp_all/surelog.uhdm \
+  --output tools/uhdm.json --source-root PROJECT
+eda-uhdm query tools/surelog-work/slpp_all/surelog.uhdm \
+  --kind ports --module dma
+eda-uhdm serve tools/surelog-work/slpp_all/surelog.uhdm
+```
+
+`serve` restores once and accepts one JSON request per input line, which avoids
+paying deserialization cost on every agent-loop query. `export` remains the
+deterministic, hashable cache and benchmark evidence format.
 
 ## CLI
 
@@ -68,8 +83,10 @@ systemc-tlm-agent init PROJECT --name dma --top dma \
   --eda-define SYNTHESIS
 ```
 
-The source order is preserved. Extraction invokes Surelog with full UHDM
-elaboration and, on success, runs `uhdm-export` to create `tools/uhdm.json`.
+The source order is preserved. The `eda-uhdm-produce` command invokes Surelog
+with full UHDM elaboration and uses the Python binding to create
+`tools/uhdm.json`. `eda-rtl-produce` independently runs Verilator and Yosys.
+`systemc-tlm-agent tools finalize PROJECT` merges their status records.
 Dependency resolution and downloads must happen before extraction.
 
 Every `QueryResult` contains the exact artifact path and SHA-256, stable
@@ -112,5 +129,5 @@ result = query_bundle(
 validate_result(result, verify_source=True)
 ```
 
-The `eda_query` package never invokes subprocesses. Artifact generation remains
-the job of `systemc-tlm-agent extract` and its configured EDA environment.
+The offline `eda_query` package never invokes subprocesses. Live database
+restore is isolated in `eda-uhdm`; producer commands own tool execution.

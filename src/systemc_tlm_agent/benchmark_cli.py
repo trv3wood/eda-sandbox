@@ -50,7 +50,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--reference-top",
         help="existing golden RTL top; defaults to --top",
     )
-    extract.add_argument("--image", default="localhost/eda-agent:local")
+    extract.add_argument("--agent-image", default="localhost/eda-agent:local")
+    extract.add_argument("--uhdm-image", default="localhost/eda-uhdm:local")
+    extract.add_argument("--rtl-image", default="localhost/eda-rtl:local")
+    extract.add_argument(
+        "--image",
+        help="deprecated: use one image for every role",
+    )
     extract.add_argument("--execute", action="store_true")
     return parser
 
@@ -78,6 +84,9 @@ def main(argv: list[str] | None = None) -> int:
                 case=args.case,
                 top=args.top,
                 reference_top=args.reference_top,
+                agent_image=args.agent_image,
+                uhdm_image=args.uhdm_image,
+                rtl_image=args.rtl_image,
                 image=args.image,
                 execute=args.execute,
             )

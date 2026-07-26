@@ -1,118 +1,126 @@
-FROM ubuntu:24.04 AS eda-base
+FROM ubuntu:24.04 AS ubuntu-base
 
-ARG MICROMAMBA_VERSION=2.6.2-1
+ENV DEBIAN_FRONTEND=noninteractive TZ=UTC
+WORKDIR /workspace
 
-ENV DEBIAN_FRONTEND=noninteractive \
-    TZ=UTC \
-    MAMBA_ROOT_PREFIX=/opt/conda \
-    PATH=/opt/conda/envs/eda/bin:/usr/local/bin:$PATH
+# Lightweight workflow/benchmark image. It intentionally contains no EDA or
+# SystemC compiler toolchain.
+FROM ubuntu-base AS agent
+ARG IMAGE_REVISION=unknown
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends python3 python3-pip && \
+    rm -rf /var/lib/apt/lists/*
+COPY pyproject.toml /opt/systemc-agent/
+COPY src /opt/systemc-agent/src
+COPY scripts/regress.sh /opt/systemc-agent/scripts/regress.sh
+RUN python3 -m pip install --break-system-packages --no-cache-dir /opt/systemc-agent
+ENV IMAGE_REVISION=${IMAGE_REVISION}
+CMD ["/bin/bash"]
 
+# Surelog/UHDM with the official Python wrapper. Compilation happens only in
+# this builder and is suitable for a GitHub-hosted runner.
+FROM ubuntu-base AS uhdm-builder
+ARG SURELOG_COMMIT=1.84
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        ca-certificates \
-        curl \
-        file \
-        git \
-        which && \
+        ant bison build-essential ca-certificates cmake default-jre flex git \
+        libcapnp-dev libfl-dev libreadline-dev libssl-dev libtcl8.6 \
+        ninja-build pkg-config python3 python3-dev python3-pip swig tcl-dev \
+        uuid-dev zlib1g-dev && \
     rm -rf /var/lib/apt/lists/*
+RUN git clone --filter=blob:none --recurse-submodules \
+        https://github.com/chipsalliance/Surelog.git /tmp/surelog && \
+    git -C /tmp/surelog checkout "${SURELOG_COMMIT}" && \
+    git -C /tmp/surelog submodule update --init --recursive
+RUN make -C /tmp/surelog -j"$(nproc)" release_with_python && \
+    make -C /tmp/surelog install PREFIX=/opt/surelog
 
-COPY env/eda-environment.yml env/surelog-environment.yml /tmp/
+FROM ubuntu-base AS eda-uhdm
+ARG IMAGE_REVISION=unknown
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        libcapnp-dev libgcc-s1 libstdc++6 libtcl8.6 python3 python3-pip \
+        uuid-runtime zlib1g && \
+    rm -rf /var/lib/apt/lists/*
+COPY --from=uhdm-builder /opt/surelog /opt/surelog
+COPY pyproject.toml /opt/systemc-agent/
+COPY src /opt/systemc-agent/src
+COPY scripts/regress.sh /opt/systemc-agent/scripts/regress.sh
+RUN python3 -m pip install --break-system-packages --no-cache-dir /opt/systemc-agent
+ENV PATH=/opt/surelog/bin:/usr/local/bin:/usr/bin \
+    LD_LIBRARY_PATH=/opt/surelog/lib \
+    PYTHONPATH=/opt/surelog/lib/python3.12/site-packages:/opt/surelog/lib/python \
+    IMAGE_REVISION=${IMAGE_REVISION}
+RUN python3 -c "import uhdm"
+CMD ["/bin/bash"]
 
+# Verilator/Yosys are independent from the semantic UHDM producer.
+FROM ubuntu-base AS rtl-tools
+ARG MICROMAMBA_VERSION=2.6.2-1
+ARG IMAGE_REVISION=unknown
+ENV MAMBA_ROOT_PREFIX=/opt/conda \
+    PATH=/opt/conda/envs/rtl/bin:/usr/local/bin:/usr/bin \
+    IMAGE_REVISION=${IMAGE_REVISION}
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates curl && \
+    rm -rf /var/lib/apt/lists/*
+COPY env/rtl-environment.yml /tmp/rtl-environment.yml
 RUN curl -fsSL \
         "https://github.com/mamba-org/micromamba-releases/releases/download/${MICROMAMBA_VERSION}/micromamba-linux-64" \
         -o /usr/local/bin/micromamba && \
     chmod 0755 /usr/local/bin/micromamba && \
-    micromamba create --yes --prefix /opt/conda/envs/eda --file /tmp/eda-environment.yml && \
-    micromamba create --yes --prefix /opt/conda/envs/surelog --file /tmp/surelog-environment.yml && \
+    micromamba create --yes --prefix /opt/conda/envs/rtl \
+        --file /tmp/rtl-environment.yml && \
     micromamba clean --all --yes && \
-    rm -f /tmp/eda-environment.yml /tmp/surelog-environment.yml
-
-COPY scripts/surelog /usr/local/bin/surelog
-RUN chmod 0755 /usr/local/bin/surelog
-
-WORKDIR /workspace
-
-FROM eda-base AS uhdm-export-build
-
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends g++ && \
-    rm -rf /var/lib/apt/lists/*
-COPY tools/uhdm_export/main.cpp /tmp/uhdm-export.cpp
-RUN g++ -std=c++17 -O2 \
-        -I/opt/conda/envs/eda/include \
-        /tmp/uhdm-export.cpp \
-        -L/opt/conda/envs/eda/lib -luhdm \
-        -Wl,-rpath,/opt/conda/envs/eda/lib \
-        -o /usr/local/bin/uhdm-export
-
-FROM eda-base AS fast
-
-COPY --from=uhdm-export-build /usr/local/bin/uhdm-export /usr/local/bin/
-
+    rm -f /tmp/rtl-environment.yml
+COPY pyproject.toml /opt/systemc-agent/
+COPY src /opt/systemc-agent/src
+COPY scripts/regress.sh /opt/systemc-agent/scripts/regress.sh
+RUN python3 -m pip install --no-deps /opt/systemc-agent
 CMD ["/bin/bash"]
 
-FROM fast AS scc-tools
-
+# SCC/Conan build state remains in this disposable builder.
+FROM ubuntu-base AS scc-builder
+ARG SCC_VERSION=2026.05
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        build-essential \
-        cmake \
-        ninja-build \
-        python3-pip \
-        python3-venv && \
+        build-essential ca-certificates cmake git ninja-build python3 \
+        python3-pip python3-venv && \
     rm -rf /var/lib/apt/lists/*
-
 RUN python3 -m venv /opt/conan && \
-    /opt/conan/bin/pip install --no-cache-dir --disable-pip-version-check conan
-
-ENV PATH=/opt/conan/bin:/opt/conda/envs/eda/bin:/usr/local/bin:$PATH
-
-FROM scc-tools AS scc-source
-
-ARG SCC_VERSION=2026.05
-
-WORKDIR /tmp
-
+    /opt/conan/bin/pip install --no-cache-dir conan
 RUN git clone --depth 1 --recurse-submodules --shallow-submodules \
-    --branch "${SCC_VERSION}" \
-    https://github.com/Minres/SystemC-Components.git scc-src && \
-    git -C scc-src submodule update --init --recursive
-
-FROM scc-source AS scc-deps
-
+        --branch "${SCC_VERSION}" \
+        https://github.com/Minres/SystemC-Components.git /tmp/scc-src
 RUN cd /tmp/scc-src && \
     /opt/conan/bin/conan profile detect --force && \
     /opt/conan/bin/conan install . \
         --output-folder=/tmp/scc-conan \
-        --build=missing \
-        -s build_type=Release
-
-FROM scc-deps AS scc-build
-
-RUN cd /tmp/scc-src && \
-    cmake -S . -B build/scc-release -G Ninja \
+        --deployer=full_deploy \
+        --build=missing -s build_type=Release && \
+    cmake -S . -B /tmp/scc-build -G Ninja \
         -DCMAKE_TOOLCHAIN_FILE=/tmp/scc-conan/build/Release/generators/conan_toolchain.cmake \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_INSTALL_PREFIX=/opt/scc && \
-    cmake --build build/scc-release --parallel && \
-    cmake --install build/scc-release
+        -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/scc && \
+    cmake --build /tmp/scc-build --parallel && \
+    cmake --install /tmp/scc-build && \
+    mkdir -p /opt/scc-deps && \
+    find /tmp/scc-conan/full_deploy/host -mindepth 4 -maxdepth 4 \
+        -type d -exec cp -a '{}/.' /opt/scc-deps/ ';'
 
-FROM scc-build AS scc
-
-ENV PATH=/opt/scc/bin:/opt/conan/bin:/opt/conda/envs/eda/bin:/usr/local/bin:$PATH \
-    CMAKE_PREFIX_PATH=/opt/scc:/tmp/scc-src/build/Release:/opt/conda/envs/eda \
-    LD_LIBRARY_PATH=/opt/scc/lib:/tmp/scc-src/build/Release:/opt/conda/envs/eda/lib
-
-CMD ["/bin/bash"]
-
-FROM scc AS agent
-
-RUN micromamba install --yes --prefix /opt/conda/envs/eda \
-        jsonschema openpyxl pydantic python-docx pyyaml && \
-    micromamba clean --all --yes
-
+FROM ubuntu-base AS eda-scc
+ARG IMAGE_REVISION=unknown
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        build-essential cmake ninja-build python3 python3-pip && \
+    rm -rf /var/lib/apt/lists/*
+COPY --from=scc-builder /opt/scc /opt/scc
+COPY --from=scc-builder /opt/scc-deps /opt/scc-deps
 COPY pyproject.toml /opt/systemc-agent/
 COPY src /opt/systemc-agent/src
-RUN python3 -m pip install --no-deps /opt/systemc-agent
-
+COPY scripts/regress.sh /opt/systemc-agent/scripts/regress.sh
+RUN python3 -m pip install --break-system-packages --no-cache-dir /opt/systemc-agent
+ENV PATH=/opt/scc/bin:/usr/local/bin:/usr/bin \
+    CMAKE_PREFIX_PATH=/opt/scc:/opt/scc-deps \
+    LD_LIBRARY_PATH=/opt/scc/lib:/opt/scc-deps/lib \
+    IMAGE_REVISION=${IMAGE_REVISION}
 CMD ["/bin/bash"]

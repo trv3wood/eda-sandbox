@@ -1,0 +1,130 @@
+name: Ubuntu container images
+
+on:
+  pull_request:
+    paths:
+      - Dockerfile.ubuntu
+      - env/rtl-environment.yml
+      - pyproject.toml
+      - src/**
+      - scripts/regress.sh
+      - .github/workflows/ubuntu-images.yml
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      build_scc:
+        description: Build the slow SCC image
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  lightweight:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: agent
+            name: eda-agent
+            profile: agent
+            max_mb: 500
+          - target: eda-uhdm
+            name: eda-uhdm
+            profile: uhdm
+            max_mb: 2000
+          - target: rtl-tools
+            name: eda-rtl
+            profile: rtl
+            max_mb: 2000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set image name
+        run: echo "IMAGE=${REGISTRY}/${GITHUB_REPOSITORY_OWNER,,}/${{ matrix.name }}:${GITHUB_SHA}" >> "$GITHUB_ENV"
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.ubuntu
+          target: ${{ matrix.target }}
+          platforms: linux/amd64
+          tags: ${{ env.IMAGE }}
+          build-args: IMAGE_REVISION=${{ github.sha }}
+          load: true
+          cache-from: type=gha,scope=${{ matrix.target }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.target }}
+      - name: Smoke test
+        run: docker run --rm "$IMAGE" bash /opt/systemc-agent/scripts/regress.sh "${{ matrix.profile }}"
+      - name: Enforce image size
+        env:
+          MAX_MB: ${{ matrix.max_mb }}
+        run: |
+          bytes="$(docker image inspect "$IMAGE" --format '{{.Size}}')"
+          test "$bytes" -le "$((MAX_MB * 1024 * 1024))"
+      - name: Push immutable image
+        if: github.event_name != 'pull_request'
+        run: |
+          docker push "$IMAGE"
+          repository="${IMAGE%:*}"
+          if [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
+            docker tag "$IMAGE" "${repository}:main"
+            docker push "${repository}:main"
+          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            docker tag "$IMAGE" "${repository}:${GITHUB_REF_NAME}"
+            docker tag "$IMAGE" "${repository}:latest"
+            docker push "${repository}:${GITHUB_REF_NAME}"
+            docker push "${repository}:latest"
+          fi
+
+  scc:
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.build_scc)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set image name
+        run: echo "IMAGE=${REGISTRY}/${GITHUB_REPOSITORY_OWNER,,}/eda-scc:${GITHUB_SHA}" >> "$GITHUB_ENV"
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.ubuntu
+          target: eda-scc
+          platforms: linux/amd64
+          tags: ${{ env.IMAGE }}
+          build-args: IMAGE_REVISION=${{ github.sha }}
+          load: true
+          cache-from: type=gha,scope=eda-scc
+          cache-to: type=gha,mode=max,scope=eda-scc
+      - name: Smoke test and size gate
+        run: |
+          docker run --rm "$IMAGE" bash /opt/systemc-agent/scripts/regress.sh scc
+          bytes="$(docker image inspect "$IMAGE" --format '{{.Size}}')"
+          test "$bytes" -le "$((2 * 1024 * 1024 * 1024))"
+          docker push "$IMAGE"
+          repository="${IMAGE%:*}"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            docker tag "$IMAGE" "${repository}:${GITHUB_REF_NAME}"
+            docker tag "$IMAGE" "${repository}:latest"
+            docker push "${repository}:${GITHUB_REF_NAME}"
+            docker push "${repository}:latest"
+          fi

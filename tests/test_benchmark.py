@@ -170,10 +170,15 @@ class BenchmarkTest(unittest.TestCase):
             dump_json(case_path, case)
             extraction = extract_case_with_container(
                 work, case="ctrl", top="TopModule",
-                image="localhost/eda-agent:local",
             )
             self.assertEqual(extraction["status"], "planned")
             self.assertIn("podman", extraction["commands"][0][0])
+            self.assertEqual(len(extraction["commands"]), 5)
+            flattened = [" ".join(command) for command in extraction["commands"]]
+            self.assertIn("localhost/eda-uhdm:local", flattened[2])
+            self.assertIn("localhost/eda-rtl:local", flattened[3])
+            self.assertIn("tools finalize", flattened[4])
+            self.assertNotIn("/agent-repo", " ".join(flattened))
 
             run_benchmark(
                 work, model="sonnet", runner="claude", arm="baseline",

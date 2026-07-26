@@ -182,10 +182,13 @@ scripts/benchmark-systemc-tlm lock --work WORK
 ```bash
 scripts/benchmark-systemc-tlm extract --work WORK \
   --case ctrl --top TopModule --reference-top RefModule \
-  --image localhost/eda-agent:local --execute
+  --agent-image localhost/eda-agent:local \
+  --uhdm-image localhost/eda-uhdm:local \
+  --rtl-image localhost/eda-rtl:local --execute
 ```
 
-不带 `--execute` 时，仅打印/持久化计划。每次运行的暂存区提供一个中立的包，包含解析器原生日志、JSON/UHDM 产物和清洗过的工具状态。建模 CLI 的 facts、evidence、contracts 和命令记录不在不同实验组之间共享。
+不带 `--execute` 时，仅打印计划。三个镜像分别承担编排、UHDM 和
+Verilator/Yosys；`--image` 是把一个旧镜像用于全部角色的兼容参数。
 
 #### `run`
 

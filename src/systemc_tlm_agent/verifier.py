@@ -65,7 +65,7 @@ def verify_project(project_dir: Path, *, backend: str = "auto") -> dict[str, Any
                 "-T",
                 # This service name is repository integration policy and is
                 # therefore the main container-related hard-coded value.
-                "eda-agent",
+                "eda-scc",
                 "bash",
                 "-lc",
                 inner,
@@ -79,7 +79,7 @@ def verify_project(project_dir: Path, *, backend: str = "auto") -> dict[str, Any
                 "run",
                 "--rm",
                 "-T",
-                "eda-agent",
+                "eda-scc",
                 "bash",
                 "-lc",
                 inner,
