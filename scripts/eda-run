@@ -1,0 +1,174 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage:
+  scripts/eda-run [OPTIONS] ROLE COMMAND [ARG...]
+  scripts/eda-run [OPTIONS] ROLE --shell
+
+Roles:
+  agent    Workflow, benchmark, and offline queries
+  uhdm     Surelog and the UHDM Python query service
+  rtl      Verilator and Yosys
+  scc      SystemC/SCC compilation and verification
+
+Options:
+  --work DIR       Mount DIR at /workspace (default: current directory)
+  --image IMAGE    Override the role's image
+  --tag TAG        Image tag (default: EDA_IMAGE_TAG or main)
+  --pull POLICY    never, missing, always, or newer (default: never)
+  --shell          Run an interactive Bash shell
+  -h, --help       Show this help
+
+Environment:
+  EDA_CONTAINER_ENGINE  podman or docker
+  EDA_IMAGE_PREFIX      default: ghcr.io/trv3wood
+  EDA_IMAGE_TAG         default: main
+  EDA_AGENT_IMAGE, EDA_UHDM_IMAGE, EDA_RTL_IMAGE, EDA_SCC_IMAGE
+
+Examples:
+  scripts/eda-run rtl verilator --version
+  scripts/eda-run uhdm surelog --version
+  scripts/eda-run uhdm eda-uhdm query design.uhdm --kind modules
+  scripts/eda-run scc --shell
+EOF
+}
+
+work_dir="${PWD}"
+image_override=""
+tag="${EDA_IMAGE_TAG:-main}"
+pull_policy="never"
+shell_mode=false
+
+while (($#)); do
+  case "$1" in
+    --work)
+      [[ $# -ge 2 ]] || { printf 'ERROR: --work requires a value\n' >&2; exit 2; }
+      work_dir="$2"
+      shift 2
+      ;;
+    --image)
+      [[ $# -ge 2 ]] || { printf 'ERROR: --image requires a value\n' >&2; exit 2; }
+      image_override="$2"
+      shift 2
+      ;;
+    --tag)
+      [[ $# -ge 2 ]] || { printf 'ERROR: --tag requires a value\n' >&2; exit 2; }
+      tag="$2"
+      shift 2
+      ;;
+    --pull)
+      [[ $# -ge 2 ]] || { printf 'ERROR: --pull requires a value\n' >&2; exit 2; }
+      pull_policy="$2"
+      shift 2
+      ;;
+    --shell)
+      shell_mode=true
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      printf 'ERROR: unknown option before ROLE: %s\n' "$1" >&2
+      exit 2
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+[[ $# -ge 1 ]] || { usage >&2; exit 2; }
+role="$1"
+shift
+if [[ "${1:-}" == "--shell" ]]; then
+  shell_mode=true
+  shift
+fi
+
+case "${role}" in
+  agent)
+    role_image="${EDA_AGENT_IMAGE:-}"
+    image_name="eda-agent"
+    ;;
+  uhdm)
+    role_image="${EDA_UHDM_IMAGE:-}"
+    image_name="eda-uhdm"
+    ;;
+  rtl)
+    role_image="${EDA_RTL_IMAGE:-}"
+    image_name="eda-rtl"
+    ;;
+  scc)
+    role_image="${EDA_SCC_IMAGE:-}"
+    image_name="eda-scc"
+    ;;
+  *)
+    printf 'ERROR: unknown role: %s\n' "${role}" >&2
+    exit 2
+    ;;
+esac
+
+case "${pull_policy}" in
+  never|missing|always|newer) ;;
+  *)
+    printf 'ERROR: invalid pull policy: %s\n' "${pull_policy}" >&2
+    exit 2
+    ;;
+esac
+
+work_dir="$(realpath "${work_dir}")"
+[[ -d "${work_dir}" ]] || {
+  printf 'ERROR: work directory does not exist: %s\n' "${work_dir}" >&2
+  exit 2
+}
+
+image="${image_override:-${role_image:-${EDA_IMAGE_PREFIX:-ghcr.io/trv3wood}/${image_name}:${tag}}}"
+engine="${EDA_CONTAINER_ENGINE:-}"
+if [[ -z "${engine}" ]]; then
+  if command -v podman >/dev/null 2>&1; then
+    engine="podman"
+  elif command -v docker >/dev/null 2>&1; then
+    engine="docker"
+  else
+    printf 'ERROR: neither podman nor docker is available\n' >&2
+    exit 1
+  fi
+fi
+command -v "${engine}" >/dev/null 2>&1 || {
+  printf 'ERROR: container engine is unavailable: %s\n' "${engine}" >&2
+  exit 1
+}
+
+container_args=(run --rm --pull="${pull_policy}" -w /workspace)
+if [[ "${engine##*/}" == "podman" ]]; then
+  container_args+=(--userns=keep-id -v "${work_dir}:/workspace:Z")
+else
+  container_args+=(--user "$(id -u):$(id -g)" -v "${work_dir}:/workspace")
+fi
+
+if [[ "${shell_mode}" == true ]]; then
+  [[ $# -eq 0 ]] || {
+    printf 'ERROR: --shell does not accept a command\n' >&2
+    exit 2
+  }
+  container_args+=(-it "${image}" /bin/bash)
+else
+  [[ $# -ge 1 ]] || {
+    printf 'ERROR: COMMAND is required unless --shell is used\n' >&2
+    exit 2
+  }
+  if [[ -t 0 && -t 1 ]]; then
+    container_args+=(-it)
+  fi
+  container_args+=("${image}" "$@")
+fi
+
+exec "${engine}" "${container_args[@]}"

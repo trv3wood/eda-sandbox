@@ -39,6 +39,19 @@ podman-compose build eda-agent
 podman-compose build eda-rtl
 ```
 
+不需要记忆容器参数时，可通过宿主机 wrapper 直接调用各角色：
+
+```bash
+scripts/eda-run rtl verilator --version
+scripts/eda-run uhdm surelog --version
+scripts/eda-run uhdm eda-uhdm query design.uhdm --kind modules
+scripts/eda-run scc --shell
+```
+
+默认使用 `ghcr.io/trv3wood/eda-*:main`、挂载当前目录并保持宿主 UID，且不会
+自动拉取新镜像。可通过 `--image`、`--tag`、`--work` 或 `EDA_*_IMAGE`
+环境变量覆盖；完整参数见 `scripts/eda-run --help`。
+
 如果只需要构建镜像，可以直接使用 Podman 的原生构建命令。这不需要 Docker 兼容的 API socket：
 
 ```bash
