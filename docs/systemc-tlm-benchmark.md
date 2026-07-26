@@ -1,30 +1,25 @@
-# SystemC TLM Skill benchmark
+# SystemC TLM 技能基准测试
 
-This benchmark runs a blinded, matched A/B evaluation of the `gpt-5.6-luna` model.
-Baseline and Skill arms receive the same case inputs, seeds, budgets, tools,
-stage boundary, and hidden tests. The Skill arm alone may use the repository
-modeling Skill. This SystemC extension is not directly comparable with the
-ChipBench paper's pass@k.
+本基准测试对 `gpt-5.6-luna` 模型进行盲化、匹配的 A/B 评估。
+基线组和技能组接收相同的用例输入、种子、预算、工具、阶段边界和隐藏测试。仅技能组可使用仓库建模技能。此 SystemC 扩展与 ChipBench 论文中的 pass@k 不直接可比。
 
-## Safe preparation
+智能体根据 [EDA 证据协议](eda-evidence-protocol.md) 查询和注册解析器原生观察结果。
+
+## 安全准备
 
 ```bash
 scripts/benchmark-systemc-tlm prepare --work ~/Work/eda-sandbox
 ```
 
-Preparation does not download or compile anything. It writes
-`sources/FETCH_COMMANDS.txt`; the user runs those potentially long-lived
-commands, then pins both repositories:
+准备阶段不下载或编译任何内容。它会写入 `sources/FETCH_COMMANDS.txt`；用户运行这些可能耗时较长的命令，然后固定两个仓库：
 
 ```bash
 scripts/benchmark-systemc-tlm lock --work ~/Work/eda-sandbox
 ```
 
-The lock records repository URL, license, commit, and a SHA-256 digest of the
-complete Git tree listing. Populate each generated `corpus/*/*/case.json` with
-its immutable input paths before executing agents.
+锁文件记录仓库 URL、许可证、提交和完整 Git 树列表的 SHA-256 摘要。在执行智能体之前，用不可变的输入路径填充每个生成的 `corpus/*/*/case.json`。
 
-Generate shared EDA evidence in the existing agent image before either arm:
+在任一实验组之前，于已有的智能体镜像中生成共享的 EDA 证据：
 
 ```bash
 scripts/benchmark-systemc-tlm extract --work ~/Work/eda-sandbox \
@@ -32,19 +27,11 @@ scripts/benchmark-systemc-tlm extract --work ~/Work/eda-sandbox \
   --image localhost/eda-agent:local --execute
 ```
 
-The command runs Surelog/UHDM, Verilator, and Yosys in the container. Each run
-receives a neutral bundle containing only parser-native logs, JSON/UHDM output,
-and a sanitized status summary. Treatment-generated `facts/`, `evidence.jsonl`,
-contracts, manifests, models, and CLI command records are never staged into
-either arm. Bubblewrap runs mount the neutral bundle read-only; direct-host runs
-rely on the benchmark instruction not to mutate it. The LLM never receives
-Podman permissions. Case manifests may list `testbench_paths`; for ChipBench,
-files ending in `_test.sv` or `_tb.sv` are recognized as testbenches for
-backward compatibility.
+该命令在容器中运行 Surelog/UHDM、Verilator 和 Yosys。每次运行收到一个中立包，仅包含解析器原生日志、JSON/UHDM 输出和清洗过的状态摘要。实验组生成的 `facts/`、`evidence.jsonl`、合约、manifest、模型和 CLI 命令记录绝不会被送入任一实验组。Bubblewrap 运行以只读方式挂载中立包；直接宿主机运行依靠基准测试指令不修改它。LLM 永远不会收到 Podman 权限。用例 manifest 可列出 `testbench_paths`；对于 ChipBench，以 `_test.sv` 或 `_tb.sv` 结尾的文件被识别为测试平台以保持向后兼容。
 
-## Runs and architecture gate
+## 运行与架构门控
 
-Without `--execute`, `run` creates an inspectable plan only:
+不带 `--execute` 时，`run` 仅创建可检查的计划：
 
 ```bash
 scripts/benchmark-systemc-tlm run --work ~/Work/eda-sandbox \
@@ -53,11 +40,9 @@ scripts/benchmark-systemc-tlm run --work ~/Work/eda-sandbox \
   --model gpt-5.6-luna --arm skill --trials 3
 ```
 
-Add `--execute` to invoke `codex exec`. The architecture phase persists its
-prompt, command, timestamps, commit lock, exit status, and JSONL. Before the
-implementation phase, put `architecture-review.json` in each run directory:
+加上 `--execute` 以调用 `codex exec`。架构阶段持久化其提示词、命令、时间戳、提交锁定、退出状态和 JSONL。在实现阶段之前，将 `architecture-review.json` 放入每个运行目录：
 
-Claude Code uses the same corpus, evidence, arms, and gate:
+Claude Code 使用相同的语料库、证据、实验组和门控：
 
 ```bash
 scripts/benchmark-systemc-tlm run --work ~/Work/eda-sandbox \
@@ -66,20 +51,9 @@ scripts/benchmark-systemc-tlm run --work ~/Work/eda-sandbox \
   --runner claude --model sonnet --arm skill --case ctrl --trials 1
 ```
 
-Add `--execute` after inspecting the plans. Claude stays on the host so its
-OAuth session remains usable; only deterministic EDA extraction runs in the
-container. Runner isolation defaults to `none` so Claude Code can retain custom
-model-provider configuration and host EDA tooling. Such runs are prompt-blinded,
-not filesystem-blinded, and `run.json` records that limitation. Use
-`--isolation bubblewrap-selective` only when the runner configuration is known
-to work inside the restricted filesystem.
+检查计划后再添加 `--execute`。Claude 保留在宿主机上以便其 OAuth 会话保持可用；仅确定性的 EDA 提取在容器中运行。运行器隔离默认为 `none`，以便 Claude Code 可以保留自定义模型提供者配置和宿主机 EDA 工具。此类运行是提示词盲化的，而非文件系统盲化的，`run.json` 记录了这一限制。仅在已知运行器配置可在受限文件系统内正常工作时，才使用 `--isolation bubblewrap-selective`。
 
-Claude baseline runs additionally use safe mode, disable slash commands, omit
-`Skill`, `Agent`, and `Task` from the tool set, and load a per-run deny settings
-file. This prevents treatment Skill/role invocation even when those
-customizations are installed in the host Claude profile. With `--isolation
-none`, Bash can still read host-visible files, so this is capability isolation
-rather than a filesystem confidentiality boundary.
+Claude 基线运行额外使用安全模式，禁用斜杠命令，从工具集中移除 `Skill`、`Agent` 和 `Task`，并加载每次运行的拒绝设置文件。这可以防止实验组技能/角色调用，即使这些自定义配置已安装在宿主机 Claude 配置文件中。在 `--isolation none` 模式下，Bash 仍然可以读取宿主机可见的文件，因此这是能力隔离而非文件系统机密性边界。
 
 ```json
 {
@@ -90,85 +64,48 @@ rather than a filesystem confidentiality boundary.
 }
 ```
 
-If the first two reviewers disagree, append the third adjudicator's decision.
-Implementation proceeds only if both initial reviewers approve, or if the
-third adjudicator resolves a disagreement with `approve`:
+如果前两位评审者意见不一致，则追加第三位裁决者的决定。实现阶段仅在两位初始评审者都批准，或者第三位裁决者以 `approve` 解决分歧时才会继续：
 
 ```bash
 scripts/benchmark-systemc-tlm run --work ~/Work/eda-sandbox \
   --model gpt-5.6-luna --arm skill --trials 3 --stage implement --execute
 ```
 
-The oracle directory must never appear in an agent prompt or working input.
-Reviewers create `score.json` in each run directory with `points` and
-`possible` for `evidence`, `architecture`, `implementation`, and `functional`;
-efficiency is reported separately. Scores also carry `gate_violations` and
-`fabricated_evidence`.
+oracle 目录绝不能出现在智能体提示词或工作输入中。评审者在每个运行目录中创建 `score.json`，包含 `evidence`（证据）、`architecture`（架构）、`implementation`（实现）和 `functional`（功能）的 `points`（得分）和 `possible`（满分）；效率单独报告。评分还包含 `gate_violations`（门控违规）和 `fabricated_evidence`（伪造证据）。
 
 ```bash
 scripts/benchmark-systemc-tlm score --work ~/Work/eda-sandbox
 scripts/benchmark-systemc-tlm report --work ~/Work/eda-sandbox
 ```
 
-Full ChipBench/OpenTitan downloads, container builds, SCC compilation, and
-complete regression remain user-operated long-running commands.
+完整的 ChipBench/OpenTitan 下载、容器构建、SCC 编译和完整回归测试仍然是用户操作的长时运行命令。
 
-## Architecture smoke result (2026-07-26)
+## 架构冒烟测试结果 (2026-07-26)
 
-One `ctrl` case was run once per arm through Claude Code using
-`deepseek-v4-flash[1M]`. This was a harness and architecture-stage smoke test,
-not a completed Pilot or a statistically meaningful Skill score.
+一个 `ctrl` 用例通过 Claude Code 使用 `deepseek-v4-flash[1M]` 对每个实验组运行了一次。这是一次框架和架构阶段的冒烟测试，而非已完成的 Pilot 测试或有统计意义的技能评分。
 
-Validated harness properties:
+已验证的框架属性：
 
-- Both arms used the same model and byte-identical neutral Surelog, Verilator,
-  Yosys, and status artifacts.
-- Baseline started with no custom skills and only the built-in
-  `claude`, `Explore`, `general-purpose`, and `Plan` agents. Its tool set
-  contained no `Skill`, `Agent`, or `Task`, and its JSONL showed no treatment
-  invocation.
-- The Skill arm received the repository Skill and role adapters. It produced
-  the canonical eight-category architecture YAML, registered 36 evidence
-  records with no unknown contract evidence IDs, passed
-  `architect --validate`, and stopped at the human approval gate.
-- Baseline produced a useful independent architecture, but used a different
-  eight-category schema and selected an RTL interpretation for a reported JALR
-  ambiguity without human adjudication. Its final `ARCHITECT_COMPLETE` status
-  was inconsistent with the unresolved entry in `conflicts.yaml`.
+- 两个实验组使用相同的模型和逐字节相同的中立 Surelog、Verilator、Yosys 和状态产物。
+- 基线组启动时没有自定义技能，仅有内置的 `claude`、`Explore`、`general-purpose` 和 `Plan` 智能体。其工具集中不包含 `Skill`、`Agent` 或 `Task`，其 JSONL 未显示任何实验组调用。
+- 技能组收到了仓库技能和角色适配器。它生成了规范的八类架构 YAML，注册了 36 条证据记录，没有未知的合约证据 ID，通过了 `architect --validate`，并在人类批准门控处停止。
+- 基线组生成了一个有用的独立架构，但使用了不同的八类模式，并在报告 JALR 歧义时选择了 RTL 解释而未经人类裁决。其最终的 `ARCHITECT_COMPLETE` 状态与 `conflicts.yaml` 中未解决的条目不一致。
 
-Observed resource use:
+观察到的资源使用：
 
-| Arm | Wall time | Input tokens | Output tokens | Reported cost |
+| 实验组 | 挂钟时间 | 输入 token | 输出 token | 报告成本 |
 |---|---:|---:|---:|---:|
-| Baseline | about 105 s | 65,810 | 13,393 | USD 0.87 |
-| Skill | about 197 s | 81,541 | 23,588 | USD 2.15 |
+| 基线 | 约 105 s | 65,810 | 13,393 | USD 0.87 |
+| 技能 | 约 197 s | 81,541 | 23,588 | USD 2.15 |
 
-These efficiency numbers are not accepted benchmark measurements. The two
-runs overlapped for about 82 seconds because they were launched from separate
-terminals, so provider contention, cache behavior, and local I/O were not
-controlled. No identical maximum cost, wall-clock timeout, or turn ceiling was
-enforced.
+这些效率数据不是被接受的基准测试测量结果。两次运行从不同终端启动，重叠了约 82 秒，因此提供者争用、缓存行为和本地 I/O 未受控制。没有强制执行相同的最大成本、挂钟超时或轮次上限。
 
-Further limitations:
+进一步的局限：
 
-- This is one case and one trial, with no blind reviewer scores or hidden
-  functional oracle.
-- Direct-host mode provides capability isolation, not filesystem
-  confidentiality; baseline Bash can theoretically read other host-visible
-  files even though the run showed no such access.
-- The Skill result still contained review findings: claiming complete RV32I
-  compatibility was broader than the supplied evidence, JALR's omitted ALUOp
-  grouping should be represented as an ambiguity rather than unconditional
-  consistency, and X/Z equivalence language was stronger than synthesis
-  evidence supports.
-- The shared neutral EDA bundle evaluates evidence interpretation and
-  architecture construction. It does not measure the Skill's ability to select,
-  configure, and execute EDA tools end to end.
+- 这仅是一个用例和一次试验，没有盲审评分或隐藏的功能 oracle。
+- 直接宿主机模式提供的是能力隔离，而非文件系统机密性；基线 Bash 理论上有能力读取其他宿主机可见的文件，尽管运行中未显示此类访问。
+- 技能结果仍包含审查发现：声称完全的 RV32I 兼容性比所提供的证据更广泛，JALR 省略的 ALUOp 分组应表示为歧义而非无条件一致性，X/Z 等价性表述比综合证据所能支持的更强。
+- 共享的中立 EDA 包评估的是证据解释和架构构建。它不衡量技能端到端选择、配置和执行 EDA 工具的能力。
 
-Therefore this run supports a preliminary qualitative signal that the Skill
-improves contract schema compliance, evidence traceability, and approval-gate
-behavior. It does not establish the Pilot's required score improvement.
-Before formal trials, both arms must receive the same explicit delivery schema,
-run sequentially in randomized order, and share identical enforced cost/time
-ceilings. The evidence-extraction and architecture evaluations should be
-reported as separate stages.
+因此，本次运行支持一个初步的定性信号，表明技能改善了合约模式合规性、证据可追溯性和审批门控行为。它并未建立 Pilot 测试所需的评分改进。
+在正式试验之前，两个实验组必须接收相同的显式交付模式，按随机顺序依次运行，并共享相同的强制成本/时间上限。证据提取和架构评估应作为独立阶段分别报告。
