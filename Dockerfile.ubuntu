@@ -61,7 +61,8 @@ RUN mkdir -p /opt/eda-tools && \
         -L/opt/conda/envs/uhdm/lib -luhdm \
         -Wl,-rpath,/opt/conda/envs/uhdm/lib \
         -o /opt/eda-tools/uhdm-export && \
-    /opt/eda-tools/uhdm-export --version
+    LD_LIBRARY_PATH=/opt/conda/envs/uhdm/lib \
+        /opt/eda-tools/uhdm-export --version
 
 FROM ubuntu-base AS eda-uhdm
 ARG IMAGE_REVISION=unknown
@@ -130,7 +131,13 @@ RUN cd /tmp/scc-src && \
     cmake --install /tmp/scc-build && \
     mkdir -p /opt/scc-deps && \
     find /tmp/scc-conan/full_deploy/host -mindepth 4 -maxdepth 4 \
-        -type d -exec cp -a '{}/.' /opt/scc-deps/ ';'
+        -type d -exec cp -a '{}/.' /opt/scc-deps/ ';' && \
+    systemc_config="$(find /tmp/scc-conan/full_deploy/host/systemc \
+        -type f -name SystemCLanguageConfig.cmake -print -quit)" && \
+    test -n "${systemc_config}" && \
+    systemc_prefix="${systemc_config%/lib/cmake/SystemCLanguage/SystemCLanguageConfig.cmake}" && \
+    cp -a "${systemc_prefix}/." /opt/scc-deps/ && \
+    test -f /opt/scc-deps/lib/cmake/SystemCLanguage/SystemCLanguageConfig.cmake
 
 FROM ubuntu-base AS eda-scc
 ARG IMAGE_REVISION=unknown
@@ -148,4 +155,6 @@ ENV PATH=/opt/scc/bin:/usr/local/bin:/usr/bin \
     CMAKE_PREFIX_PATH=/opt/scc:/opt/scc-deps \
     LD_LIBRARY_PATH=/opt/scc/lib:/opt/scc-deps/lib \
     IMAGE_REVISION=${IMAGE_REVISION}
+RUN test -f \
+    /opt/scc-deps/lib/cmake/SystemCLanguage/SystemCLanguageConfig.cmake
 CMD ["/bin/bash"]
