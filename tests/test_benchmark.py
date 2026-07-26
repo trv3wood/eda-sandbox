@@ -185,7 +185,11 @@ class BenchmarkTest(unittest.TestCase):
             )["command"]
             self.assertIn(str(SANDBOX_ROOT / "runner-bin/claude"), command)
             self.assertIn("stream-json", command)
-            self.assertNotIn("--safe-mode", command)
+            self.assertIn("--safe-mode", command)
+            self.assertIn("--disable-slash-commands", command)
+            self.assertIn("--tools", command)
+            self.assertIn("--disallowedTools", command)
+            self.assertIn("Skill,Agent,Task,Task(systemc-*)", command)
             self.assertNotIn(str(SANDBOX_TREATMENT), command)
             claude_home = (
                 work
@@ -195,6 +199,14 @@ class BenchmarkTest(unittest.TestCase):
             self.assertIn(str(claude_home), command)
             self.assertIn(str(Path.home() / ".claude"), command)
             self.assertNotIn(str(Path.home() / ".claude/agents"), command)
+            baseline_settings = (
+                work / "runs/sonnet/ctrl/baseline/1/agent-workspace"
+                / ".claude-baseline-settings.json"
+            )
+            self.assertEqual(
+                load_json(baseline_settings)["permissions"]["deny"][0],
+                "Skill",
+            )
 
             stream = work / "claude.jsonl"
             stream.write_text(
@@ -250,6 +262,44 @@ class BenchmarkTest(unittest.TestCase):
             self.assertIn(
                 str(repository_root() / "skills/modeling-systemc-tlm/SKILL.md"),
                 prompt,
+            )
+
+    def test_shared_eda_bundle_excludes_treatment_facts(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary)
+            self._prepared(work)
+            source = work / "corpus/chipbench/ctrl/eda-project"
+            tools = source / ".systemc-agent/tools"
+            facts = source / ".systemc-agent/facts"
+            contracts = source / ".systemc-agent/contracts"
+            for path in (tools, facts, contracts):
+                path.mkdir(parents=True)
+            (tools / "yosys.json").write_text("{}\n", encoding="utf-8")
+            dump_json(facts / "rtl.json", {
+                "target_top": "TopModule",
+                "reference_top": "RefModule",
+                "tools": {"yosys": {"status": "passed", "returncode": 0}},
+            })
+            (source / ".systemc-agent/evidence.jsonl").write_text(
+                '{"id":"treatment-fact"}\n', encoding="utf-8"
+            )
+            (contracts / "architecture.yaml").write_text(
+                "treatment: true\n", encoding="utf-8"
+            )
+            result = run_benchmark(
+                work, model="sonnet", runner="claude", arm="baseline",
+                trials=1, cases=["ctrl"], isolation_mode="none",
+            )
+            run_dir = Path(result["run_directories"][0])
+            bundle = run_dir / "shared-eda-evidence"
+            self.assertTrue((bundle / "tools/yosys.json").is_file())
+            self.assertTrue((bundle / "eda-status.json").is_file())
+            self.assertFalse((bundle / "facts").exists())
+            self.assertFalse((bundle / "contracts").exists())
+            self.assertFalse((bundle / "evidence.jsonl").exists())
+            direct_case = load_json(run_dir / "direct-case.json")
+            self.assertEqual(
+                direct_case["eda_evidence_path"], str(bundle)
             )
 
 

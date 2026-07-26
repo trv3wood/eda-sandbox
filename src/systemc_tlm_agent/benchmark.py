@@ -470,6 +470,37 @@ def _sandbox_case(
     return sandbox_manifest, mounts
 
 
+def _stage_neutral_eda_evidence(source: Path, destination: Path) -> Path:
+    """Copy parser-native outputs without treatment facts or contracts."""
+    if destination.exists():
+        return destination
+    destination.mkdir(parents=True)
+    tools = source / ".systemc-agent" / "tools"
+    if tools.is_dir():
+        shutil.copytree(tools, destination / "tools")
+    for name in ("slpp_all", "obj_dir"):
+        artifact = source / name
+        if artifact.is_dir():
+            shutil.copytree(artifact, destination / name)
+    rtl_facts_path = source / ".systemc-agent" / "facts" / "rtl.json"
+    if rtl_facts_path.is_file():
+        rtl_facts = load_json(rtl_facts_path)
+        dump_json(destination / "eda-status.json", {
+            "schema_version": 1,
+            "target_top": rtl_facts.get("target_top", rtl_facts.get("top")),
+            "reference_top": rtl_facts.get("reference_top"),
+            "tools": {
+                name: {
+                    key: value.get(key)
+                    for key in ("status", "returncode")
+                    if key in value
+                }
+                for name, value in rtl_facts.get("tools", {}).items()
+            },
+        })
+    return destination
+
+
 def _summarize_codex_jsonl(path: Path) -> tuple[dict[str, Any] | None, str | None]:
     usage = None
     final_message = None
@@ -587,6 +618,19 @@ def run_benchmark(
             agent_dir.mkdir(parents=True, exist_ok=True)
             case_manifest = _case_manifest(work, case)
             sandbox_manifest, input_mounts = _sandbox_case(case_manifest, run_dir)
+            source_evidence = case_manifest.parent / "eda-project"
+            neutral_evidence = None
+            if source_evidence.is_dir():
+                neutral_evidence = _stage_neutral_eda_evidence(
+                    source_evidence,
+                    run_dir / "shared-eda-evidence",
+                )
+                input_mounts = [
+                    mount
+                    for mount in input_mounts
+                    if mount[1] != SANDBOX_EVIDENCE
+                ]
+                input_mounts.append((neutral_evidence, SANDBOX_EVIDENCE))
             if stage == "implement":
                 review_path = run_dir / "architecture-review.json"
                 if not review_path.exists():
@@ -599,19 +643,9 @@ def run_benchmark(
                     )
             if isolation_mode == "none":
                 direct_case = load_json(case_manifest)
-                evidence = case_manifest.parent / "eda-project"
-                if evidence.is_dir():
-                    local_evidence = agent_dir / "eda-project"
-                    if not local_evidence.exists():
-                        shutil.copytree(
-                            evidence,
-                            local_evidence,
-                            ignore=shutil.ignore_patterns(
-                                "contracts", "model", "build"
-                            ),
-                        )
-                    direct_case["eda_evidence_path"] = str(local_evidence)
-                    evidence = local_evidence
+                evidence = neutral_evidence or source_evidence
+                if neutral_evidence is not None:
+                    direct_case["eda_evidence_path"] = str(neutral_evidence)
                 direct_manifest = run_dir / "direct-case.json"
                 dump_json(direct_manifest, direct_case)
                 manifest_path = direct_manifest
@@ -659,8 +693,34 @@ def run_benchmark(
                     "--no-session-persistence",
                     "--permission-mode", "bypassPermissions",
                     "--allow-dangerously-skip-permissions",
-                    prompt,
                 ]
+                if arm == "baseline":
+                    baseline_settings = (
+                        agent_dir / ".claude-baseline-settings.json"
+                    )
+                    dump_json(baseline_settings, {
+                        "permissions": {
+                            "deny": [
+                                "Skill",
+                                "Agent",
+                                "Task",
+                                "Task(systemc-*)",
+                            ]
+                        }
+                    })
+                    settings_path = (
+                        SANDBOX_WORKSPACE / baseline_settings.name
+                        if isolation_mode != "none"
+                        else baseline_settings
+                    )
+                    runner_command.extend([
+                        "--safe-mode",
+                        "--disable-slash-commands",
+                        "--tools", "Bash,Read,Write,Edit,Glob,Grep",
+                        "--disallowedTools", "Skill,Agent,Task,Task(systemc-*)",
+                        "--settings", str(settings_path),
+                    ])
+                runner_command.append(prompt)
             command = (
                 runner_command
                 if isolation_mode == "none"
@@ -680,6 +740,11 @@ def run_benchmark(
                 "schema_version": 1, "case": case, "arm": arm, "trial": trial,
                 "model": model, "runner": runner, "stage": stage,
                 "isolation": isolation_mode,
+                "capability_policy": (
+                    "baseline-no-skill-agent-task"
+                    if runner == "claude" and arm == "baseline"
+                    else "runner-default"
+                ),
                 "prompt_sha256": sha256_text(prompt),
                 "input_commits": {x["name"]: x["commit"] for x in lock["sources"]},
                 "command": command, "created_at": utc_now(), "started_at": None,
