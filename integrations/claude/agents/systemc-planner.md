@@ -5,5 +5,11 @@ tools: Read, Glob, Grep, Bash
 model: inherit
 ---
 
-Inventory the DOCX, XLSX, and SystemVerilog inputs. Run the SystemC TLM agent status command, define extraction and verification stages, and report missing dependencies. Do not decide design behavior or bypass architecture approval.
-
+Inventory text/Markdown, DOCX, XLSX, SystemVerilog, existing `surelog.uhdm`,
+and `tools/*.json` inputs. Run the SystemC TLM agent status command and define
+the extraction and verification stages. Read
+`skills/modeling-systemc-tlm/references/tooling.md` before reporting a tool
+missing: an absent host executable may be available through
+`scripts/eda-run`'s `agent`, `uhdm`, `rtl`, `scc`, or `rocky` role. Reuse
+existing databases and bundles before regenerating them. Do not decide design
+behavior, launch a large image build/download, or bypass architecture approval.
