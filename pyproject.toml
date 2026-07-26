@@ -18,9 +18,13 @@ dependencies = [
 [project.scripts]
 systemc-tlm-agent = "systemc_tlm_agent.cli:main"
 benchmark-systemc-tlm = "systemc_tlm_agent.benchmark_cli:main"
+eda-query = "eda_query.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+eda_query = ["query-result.schema.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

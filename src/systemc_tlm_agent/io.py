@@ -107,6 +107,7 @@ def project_paths(project_dir: Path) -> dict[str, Path]:
         "state": state,
         "facts": state / "facts",
         "evidence": state / "evidence.jsonl",
+        "query_evidence": state / "query-evidence.jsonl",
         "contracts": state / "contracts" / "architecture.yaml",
         "conflicts": state / "contracts" / "conflicts.yaml",
         "approval": state / "contracts" / "approval.yaml",

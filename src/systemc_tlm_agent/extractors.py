@@ -241,16 +241,58 @@ def run_eda_tools(
     testbench_files: list[Path],
     top: str,
     tools_dir: Path,
+    compile_sources: list[Path] | None = None,
+    include_dirs: list[Path] | None = None,
+    defines: list[str] | None = None,
 ) -> dict[str, Any]:
     # The command templates are tool integration policy. RTL file lists and the
     # top module come from manifest.yaml rather than being hard-coded.
     relative_rtl = [str(path) for path in rtl_files]
     relative_testbench = [str(path) for path in testbench_files]
+    semantic_sources = [
+        str(path)
+        for path in (
+            compile_sources
+            if compile_sources is not None
+            else [*rtl_files, *testbench_files]
+        )
+    ]
+    surelog_work = tools_dir / "surelog-work"
+    surelog_work.mkdir(parents=True, exist_ok=True)
+    surelog_command = [
+        "surelog",
+        *semantic_sources,
+        *(f"-I{path}" for path in (include_dirs or [])),
+        *(f"-D{value}" for value in (defines or [])),
+        "-top",
+        top,
+        "-parse",
+        "-elabuhdm",
+        "-d",
+        "uhdm",
+    ]
     surelog = _run_tool(
-        ["surelog", *relative_rtl, *relative_testbench, "-parse", "-d", "uhdm"],
-        project_dir,
+        surelog_command,
+        surelog_work,
         tools_dir / "surelog.log",
     )
+    uhdm_path = surelog_work / "slpp_all" / "surelog.uhdm"
+    if surelog["status"] == "passed" and uhdm_path.is_file():
+        uhdm = _run_tool(
+            ["uhdm-export", str(uhdm_path), str(tools_dir / "uhdm.json")],
+            project_dir,
+            tools_dir / "uhdm-export.log",
+        )
+    else:
+        uhdm = {
+            "status": "skipped",
+            "reason": (
+                "Surelog did not produce a UHDM database"
+                if surelog["status"] == "passed"
+                else "Surelog failed"
+            ),
+            "source": str(uhdm_path),
+        }
     verilator = _run_tool(
         [
             "verilator",
@@ -275,7 +317,12 @@ def run_eda_tools(
         project_dir,
         tools_dir / "yosys.log",
     )
-    return {"surelog": surelog, "verilator": verilator, "yosys": yosys}
+    return {
+        "surelog": surelog,
+        "uhdm": uhdm,
+        "verilator": verilator,
+        "yosys": yosys,
+    }
 
 
 def extract_project(project_dir: Path, *, run_tools: bool = True) -> dict[str, Any]:
@@ -307,6 +354,26 @@ def extract_project(project_dir: Path, *, run_tools: bool = True) -> dict[str, A
         directory_suffixes={".v", ".sv"},
     )
     all_rtl_files = [*rtl_files, *testbench_files]
+    compile_config = manifest.get("eda_compile", {})
+    if compile_config and not isinstance(compile_config, dict):
+        raise ValueError("manifest eda_compile must be a mapping")
+    compile_sources = resolve_inputs(
+        project_dir,
+        compile_config.get("sources", manifest.get("rtl", [])),
+        directory_suffixes={".v", ".sv"},
+    )
+    include_dirs = []
+    for value in compile_config.get("include_dirs", []):
+        path = Path(value)
+        resolved = (path if path.is_absolute() else project_dir / path).resolve()
+        if not resolved.is_dir():
+            raise FileNotFoundError(f"EDA include directory does not exist: {value}")
+        include_dirs.append(resolved)
+    defines = compile_config.get("defines", [])
+    if not isinstance(defines, list) or not all(
+        isinstance(value, str) and value for value in defines
+    ):
+        raise ValueError("manifest eda_compile.defines must be a list of strings")
     rtl_units = []
     for path in all_rtl_files:
         evidence, facts = extract_rtl(path, project_dir)
@@ -334,6 +401,9 @@ def extract_project(project_dir: Path, *, run_tools: bool = True) -> dict[str, A
                 testbench_files=testbench_files,
                 top=reference_top,
                 tools_dir=paths["tools"],
+                compile_sources=compile_sources,
+                include_dirs=include_dirs,
+                defines=defines,
             )
             if run_tools and rtl_files
             else {
@@ -345,7 +415,7 @@ def extract_project(project_dir: Path, *, run_tools: bool = True) -> dict[str, A
                         else "EDA tool execution was disabled"
                     ),
                 }
-                for tool in ("surelog", "verilator", "yosys")
+                for tool in ("surelog", "uhdm", "verilator", "yosys")
             }
         ),
     }

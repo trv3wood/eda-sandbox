@@ -42,6 +42,8 @@ class WorkflowTest(unittest.TestCase):
         )
         commands = [call.args[0] for call in run_tool.call_args_list]
         self.assertIn(str(testbench), commands[0])
+        self.assertIn("-elabuhdm", commands[0])
+        self.assertEqual(commands[0][commands[0].index("-top") + 1], "TopModule")
         self.assertIn("--json-only", commands[1])
         self.assertNotIn("--xml-only", commands[1])
         self.assertNotIn(str(testbench), commands[1])

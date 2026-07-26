@@ -39,6 +39,14 @@ RUN curl -fsSL \
 COPY scripts/surelog /usr/local/bin/surelog
 RUN chmod 0755 /usr/local/bin/surelog
 
+COPY tools/uhdm_export/main.cpp /tmp/uhdm-export.cpp
+RUN g++ -std=c++17 -O2 \
+        -I/opt/conda/envs/eda/include \
+        /tmp/uhdm-export.cpp \
+        -L/opt/conda/envs/eda/lib -luhdm \
+        -Wl,-rpath,/opt/conda/envs/eda/lib \
+        -o /usr/local/bin/uhdm-export
+
 WORKDIR /workspace
 
 CMD ["/bin/bash"]

@@ -1,0 +1,39 @@
+{
+  "creator": "Yosys test fixture",
+  "modules": {
+    "child": {
+      "attributes": {"src": "packet.sv:1.1-5.10"},
+      "ports": {
+        "data": {"direction": "input", "bits": [2, 3]}
+      },
+      "cells": {},
+      "netnames": {
+        "data": {"hide_name": 0, "bits": [2, 3], "attributes": {"src": "packet.sv:2.9-2.13"}}
+      }
+    },
+    "packet_engine_top": {
+      "attributes": {"src": "packet.sv:7.1-15.10"},
+      "ports": {
+        "clk": {"direction": "input", "bits": [2]},
+        "out": {"direction": "output", "bits": [3, 4]}
+      },
+      "cells": {
+        "$logic": {
+          "type": "$and",
+          "parameters": {},
+          "connections": {"A": [2], "Y": [3]},
+          "attributes": {"src": "packet.sv:12.3-12.20"}
+        },
+        "u_child": {
+          "type": "child",
+          "parameters": {},
+          "connections": {"data": [3, 4]},
+          "attributes": {"src": "packet.sv:10.3-10.25"}
+        }
+      },
+      "netnames": {
+        "out": {"hide_name": 0, "bits": [3, 4], "attributes": {"src": "packet.sv:8.16-8.19"}}
+      }
+    }
+  }
+}

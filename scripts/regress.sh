@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-required=(bash cmake ninja git python3 surelog verilator yosys)
+required=(bash cmake ninja git python3 surelog uhdm-export verilator yosys)
 optional=(flex bison dot systemc-tlm-agent)
 missing=()
 
@@ -59,6 +59,7 @@ if [[ -z "${uhdm_library}" ]]; then
     exit 1
 fi
 printf '  UHDM:    %s\n' "${uhdm_library}"
+printf '  Export:  %s\n' "$(uhdm-export --version)"
 
 for tool in "${optional[@]}"; do
   if command -v "$tool" >/dev/null 2>&1; then

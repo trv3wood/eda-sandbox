@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .io import dump_yaml, load_json, load_yaml, object_digest, project_paths
+from .query_evidence import all_evidence
 
 
 # These eight categories are a deliberate modeling policy, not IP-specific
@@ -81,11 +82,7 @@ def validate_architecture(project_dir: Path) -> list[str]:
     architecture = load_yaml(paths["contracts"])
     errors = []
     categories = architecture.get("categories", {})
-    evidence_ids = set()
-    if paths["evidence"].exists():
-        for line in paths["evidence"].read_text(encoding="utf-8").splitlines():
-            if line.strip():
-                evidence_ids.add(json.loads(line)["id"])
+    evidence_ids = {item["id"] for item in all_evidence(project_dir)}
     for key, _ in CONTRACT_CATEGORIES:
         category = categories.get(key)
         if not isinstance(category, dict):
@@ -133,6 +130,7 @@ def approval_payload(project_dir: Path) -> dict[str, Any]:
     return {
         "manifest": manifest,
         "facts": facts,
+        "evidence": all_evidence(project_dir),
         "architecture": architecture,
         "conflicts": conflicts,
     }

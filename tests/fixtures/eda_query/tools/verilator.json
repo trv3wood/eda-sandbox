@@ -1,0 +1,25 @@
+{
+  "type": "NETLIST",
+  "modulesp": [
+    {
+      "type": "MODULE",
+      "name": "child",
+      "loc": "packet.sv:1:1",
+      "stmtsp": [
+        {"type": "VAR", "name": "data", "direction": "input", "isPrimaryIO": true, "dtypep": "logic[1:0]", "loc": "packet.sv:2:9"}
+      ]
+    },
+    {
+      "type": "MODULE",
+      "name": "packet_engine_top",
+      "loc": "packet.sv:7:1",
+      "stmtsp": [
+        {"type": "VAR", "name": "clk", "direction": "input", "isPrimaryIO": true, "dtypep": "logic", "loc": "packet.sv:8:9"},
+        {"type": "VAR", "name": "out", "direction": "output", "isPrimaryIO": true, "dtypep": "logic[1:0]", "loc": "packet.sv:8:16"},
+        {"type": "CELL", "name": "u_child", "modName": "child", "loc": "packet.sv:10:3"},
+        {"type": "VAR", "name": "parameter_like", "direction": "NONE", "loc": "packet.sv:11:3"},
+        {"type": "ASSIGN", "loc": "packet.sv:12:3"}
+      ]
+    }
+  ]
+}

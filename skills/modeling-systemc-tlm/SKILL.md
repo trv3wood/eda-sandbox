@@ -11,7 +11,7 @@ Use the deterministic CLI for artifact production. Use agent reasoning to interp
 
 1. Read `references/workflow.md`, then inspect the project manifest and current status.
 2. Run `scripts/systemc-tlm-agent extract PROJECT`.
-3. Assign evidence IDs to claims. Use Surelog/UHDM, Verilator, and Yosys outputs as supporting structural evidence, not as replacements for the Spec or RTL.
+3. Assign evidence IDs to claims. Use Surelog/UHDM, Verilator, and Yosys outputs as supporting structural evidence, not as replacements for the Spec or RTL. For prebuilt JSON views, use the offline query recipes below and explicitly record only the claims used by a contract.
 4. Run `scripts/systemc-tlm-agent architect PROJECT`.
 5. Complete all eight contract categories according to `references/contracts.md`. Record contradictions in `contracts/conflicts.yaml`.
 6. Stop if any category is unresolved or any conflict is open. Ask for a decision with the competing evidence IDs.
@@ -39,3 +39,31 @@ Follow `references/roles.md`. Keep Planner, Evidence Extractor, Architect, Imple
 
 Read `references/tooling.md` before choosing local or container execution. Do not launch large image builds or minres-SCC recompiles automatically; provide the exact command for the user to run.
 
+## Prebuilt EDA Query Recipes
+
+When an extraction or benchmark bundle contains `tools/uhdm.json`,
+`tools/yosys.json`, or `tools/verilator.json`, inspect it through `eda-query`;
+do not fall back to regular expressions merely because the live parser
+executable is absent. Prefer UHDM for types, enums, processes, cases, and FSM
+candidates; use Verilator and Yosys as independent structural views.
+
+```bash
+eda-query catalog BUNDLE
+eda-query query BUNDLE --backend uhdm --kind enums --module TOP
+eda-query query BUNDLE --backend uhdm --kind fsm-candidates --module TOP
+eda-query query BUNDLE --backend yosys --kind hierarchy --module TOP
+eda-query query BUNDLE --backend yosys --kind ports --module TOP
+eda-query query BUNDLE --backend verilator --kind statements --module TOP
+```
+
+Record a result only after checking that it supports the stated claim:
+
+```bash
+systemc-tlm-agent evidence record PROJECT \
+  --result RESULT.json \
+  --statement "Evidence-grounded claim used by the architecture contract."
+```
+
+Treat `empty`, `unsupported`, warnings, and missing backend artifacts as
+limitations to report. The query layer never launches an EDA process; use the
+normal extraction workflow when artifacts need to be generated.

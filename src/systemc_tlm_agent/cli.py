@@ -15,6 +15,7 @@ from pathlib import Path
 from .extractors import extract_project
 from .generator import generate_model
 from .io import dump_yaml, project_paths
+from .query_evidence import list_evidence, record_query_evidence
 from .verifier import verify_project
 from .workflow import (
     approval_is_valid,
@@ -51,6 +52,18 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument("--xlsx", action="append", default=[])
     init.add_argument("--rtl", action="append", default=[])
     init.add_argument(
+        "--eda-source", action="append", default=[],
+        help="ordered SystemVerilog compile source (repeatable; defaults to --rtl)",
+    )
+    init.add_argument(
+        "--eda-include-dir", action="append", default=[],
+        help="SystemVerilog include directory (repeatable)",
+    )
+    init.add_argument(
+        "--eda-define", action="append", default=[],
+        help="SystemVerilog macro NAME or NAME=VALUE (repeatable)",
+    )
+    init.add_argument(
         "--tb", action="append", default=[],
         help="non-synthesizable testbench input (repeatable)",
     )
@@ -82,6 +95,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     status_parser = subparsers.add_parser("status", help="show workflow state")
     status_parser.add_argument("project")
+
+    evidence = subparsers.add_parser(
+        "evidence", help="record or list explicit EDA query evidence"
+    )
+    evidence_commands = evidence.add_subparsers(
+        dest="evidence_command", required=True
+    )
+    evidence_record = evidence_commands.add_parser("record")
+    evidence_record.add_argument("project")
+    evidence_record.add_argument("--result", required=True)
+    evidence_record.add_argument("--statement", required=True)
+    evidence_list = evidence_commands.add_parser("list")
+    evidence_list.add_argument("project")
     return parser
 
 
@@ -102,6 +128,14 @@ def command_init(args: argparse.Namespace) -> dict:
         "registers": args.xlsx,
         "rtl": args.rtl,
         "testbench": getattr(args, "tb", []),
+        "eda_compile": {
+            "sources": (
+                getattr(args, "eda_source", [])
+                or [*args.rtl, *getattr(args, "tb", [])]
+            ),
+            "include_dirs": getattr(args, "eda_include_dir", []),
+            "defines": getattr(args, "eda_define", []),
+        },
         "backend": args.backend,
     }
     dump_yaml(paths["manifest"], manifest)
@@ -170,6 +204,13 @@ def main(argv: list[str] | None = None) -> int:
             return returncode
         elif args.command == "status":
             result = status(project_dir)
+        elif args.command == "evidence":
+            if args.evidence_command == "record":
+                result = record_query_evidence(
+                    project_dir, Path(args.result).resolve(), statement=args.statement
+                )
+            else:
+                result = list_evidence(project_dir)
         else:
             parser.error(f"unknown command: {args.command}")
             return 2

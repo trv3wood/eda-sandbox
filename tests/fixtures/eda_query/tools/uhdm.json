@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "format": "uhdm-json",
+  "serializer_version": 1,
+  "source": "fixture.uhdm",
+  "objects": [
+    {
+      "id": 1, "kind": "module", "name": "work@packet_engine_top",
+      "definition": "work@packet_engine_top", "parent_id": null,
+      "module": "work@packet_engine_top", "file": "packet.sv",
+      "line": 7, "column": 1, "end_line": 15, "end_column": 10
+    },
+    {
+      "id": 2, "kind": "port", "name": "clk", "definition": "",
+      "parent_id": 1, "module": "work@packet_engine_top",
+      "file": "packet.sv", "line": 8, "column": 9,
+      "end_line": 8, "end_column": 12, "direction": "input", "size": 1
+    },
+    {
+      "id": 3, "kind": "enum", "name": "state_e", "definition": "",
+      "parent_id": 1, "module": "work@packet_engine_top",
+      "file": "packet.sv", "line": 9, "column": 3,
+      "end_line": 9, "end_column": 35
+    },
+    {
+      "id": 4, "kind": "enum-constant", "name": "Idle", "definition": "",
+      "parent_id": 3, "module": "work@packet_engine_top",
+      "file": "packet.sv", "line": 9, "column": 20,
+      "end_line": 9, "end_column": 24, "value": "INT:0", "decompile": "0"
+    },
+    {
+      "id": 5, "kind": "enum-constant", "name": "Run", "definition": "",
+      "parent_id": 3, "module": "work@packet_engine_top",
+      "file": "packet.sv", "line": 9, "column": 26,
+      "end_line": 9, "end_column": 29, "value": "INT:1", "decompile": "1"
+    },
+    {
+      "id": 6, "kind": "variable", "name": "state_q", "definition": "",
+      "parent_id": 1, "module": "work@packet_engine_top",
+      "file": "packet.sv", "line": 10, "column": 3,
+      "end_line": 10, "end_column": 10,
+      "typespec_id": 3, "typespec_name": "state_e"
+    },
+    {
+      "id": 7, "kind": "case", "name": "", "definition": "",
+      "parent_id": 1, "module": "work@packet_engine_top",
+      "file": "packet.sv", "line": 12, "column": 3,
+      "end_line": 14, "end_column": 10
+    }
+  ]
+}

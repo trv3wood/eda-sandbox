@@ -32,11 +32,26 @@ RUN chmod 0755 /usr/local/bin/surelog
 
 WORKDIR /workspace
 
+FROM eda-base AS uhdm-export-build
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends g++ && \
+    rm -rf /var/lib/apt/lists/*
+COPY tools/uhdm_export/main.cpp /tmp/uhdm-export.cpp
+RUN g++ -std=c++17 -O2 \
+        -I/opt/conda/envs/eda/include \
+        /tmp/uhdm-export.cpp \
+        -L/opt/conda/envs/eda/lib -luhdm \
+        -Wl,-rpath,/opt/conda/envs/eda/lib \
+        -o /usr/local/bin/uhdm-export
+
 FROM eda-base AS fast
+
+COPY --from=uhdm-export-build /usr/local/bin/uhdm-export /usr/local/bin/
 
 CMD ["/bin/bash"]
 
-FROM eda-base AS scc-tools
+FROM fast AS scc-tools
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
