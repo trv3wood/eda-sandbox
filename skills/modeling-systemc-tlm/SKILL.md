@@ -38,6 +38,9 @@ Follow `references/roles.md`. Keep Planner, Evidence Extractor, Architect, Imple
 ## Tool Routing
 
 Read `references/tooling.md` before choosing local or container execution. Do not launch large image builds or minres-SCC recompiles automatically; provide the exact command for the user to run.
+An absent host executable is not a tool failure until the corresponding
+`scripts/eda-run` role has also been checked. Reuse an existing UHDM database
+or JSON bundle before regenerating it.
 
 ## Prebuilt EDA Query Recipes
 
