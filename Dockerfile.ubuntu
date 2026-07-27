@@ -130,12 +130,15 @@ RUN cd /tmp/scc-src && \
         -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/scc && \
     cmake --build /tmp/scc-build --parallel && \
     cmake --install /tmp/scc-build
+# Conan full_deploy omits SystemC's CMake package configuration. Its headers
+# and libraries remain the runtime source; copy only configuration from cache.
 RUN ( \
         mkdir -p /opt/scc-deps && \
         find /tmp/scc-conan/full_deploy/host -mindepth 4 -maxdepth 4 \
             -type d -exec cp -a '{}/.' /opt/scc-deps/ ';' && \
-        systemc_config="$(find /tmp/scc-conan/full_deploy/host/systemc \
-            -name SystemCLanguageConfig.cmake -print -quit)" && \
+        systemc_config="$(find /root/.conan2/p/b \
+            -path '*/p/lib/cmake/SystemCLanguage/SystemCLanguageConfig.cmake' \
+            -type f -print -quit)" && \
         test -n "${systemc_config}" && \
         systemc_cmake_dir="$(dirname "${systemc_config}")" && \
         mkdir -p /opt/scc-deps/lib/cmake/SystemCLanguage && \
@@ -150,9 +153,10 @@ RUN ( \
         echo "--- Deployed SystemC entries ---" >&2; \
         find /tmp/scc-conan/full_deploy/host/systemc -maxdepth 8 \
             -printf '%y %p -> %l\n' 2>&1 | sort >&2; \
-        echo "--- SystemCLanguage configuration candidates ---" >&2; \
-        find /tmp/scc-conan/full_deploy/host/systemc \
-            -name SystemCLanguageConfig.cmake -printf '%y %p -> %l\n' \
+        echo "--- Conan cache SystemCLanguage configuration candidates ---" >&2; \
+        find /root/.conan2/p/b \
+            -path '*/p/lib/cmake/SystemCLanguage/SystemCLanguageConfig.cmake' \
+            -printf '%y %p -> %l\n' \
             2>&1 | sort >&2; \
         echo "--- Copied SCC dependency layout ---" >&2; \
         find /opt/scc-deps -maxdepth 5 -printf '%y %p -> %l\n' \
