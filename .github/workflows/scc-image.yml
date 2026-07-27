@@ -1,0 +1,62 @@
+name: SCC container image
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  scc:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set image name
+        run: echo "IMAGE=${REGISTRY}/${GITHUB_REPOSITORY_OWNER,,}/eda-scc:${GITHUB_SHA}" >> "$GITHUB_ENV"
+      - name: Warm SCC builder cache
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.ubuntu
+          target: scc-builder
+          platforms: linux/amd64
+          cache-from: type=gha,scope=eda-scc-builder
+          cache-to: type=gha,mode=max,scope=eda-scc-builder
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.ubuntu
+          target: eda-scc
+          platforms: linux/amd64
+          tags: ${{ env.IMAGE }}
+          build-args: IMAGE_REVISION=${{ github.sha }}
+          load: true
+          cache-from: |
+            type=gha,scope=eda-scc-builder
+            type=gha,scope=eda-scc
+          cache-to: type=gha,mode=max,scope=eda-scc
+      - name: Smoke test and size gate
+        run: |
+          docker run --rm "$IMAGE" bash /opt/systemc-agent/scripts/regress.sh scc
+          bytes="$(docker image inspect "$IMAGE" --format '{{.Size}}')"
+          test "$bytes" -le "$((2 * 1024 * 1024 * 1024))"
+          docker push "$IMAGE"
+          repository="${IMAGE%:*}"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            docker tag "$IMAGE" "${repository}:${GITHUB_REF_NAME}"
+            docker tag "$IMAGE" "${repository}:latest"
+            docker push "${repository}:${GITHUB_REF_NAME}"
+            docker push "${repository}:latest"
+          fi
