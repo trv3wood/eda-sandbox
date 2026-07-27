@@ -123,23 +123,42 @@ RUN cd /tmp/scc-src && \
     /opt/conan/bin/conan install . \
         --output-folder=/tmp/scc-conan \
         --deployer=full_deploy \
-        --build=missing -s build_type=Release && \
+        --build=missing -s build_type=Release
+RUN cd /tmp/scc-src && \
     cmake -S . -B /tmp/scc-build -G Ninja \
         -DCMAKE_TOOLCHAIN_FILE=/tmp/scc-conan/build/Release/generators/conan_toolchain.cmake \
         -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/scc && \
     cmake --build /tmp/scc-build --parallel && \
-    cmake --install /tmp/scc-build && \
-    mkdir -p /opt/scc-deps && \
-    find /tmp/scc-conan/full_deploy/host -mindepth 4 -maxdepth 4 \
-        -type d -exec cp -a '{}/.' /opt/scc-deps/ ';' && \
-    systemc_config="$(find /tmp/scc-conan/full_deploy/host/systemc \
-        -name SystemCLanguageConfig.cmake -print -quit)" && \
-    test -n "${systemc_config}" && \
-    systemc_cmake_dir="$(dirname "${systemc_config}")" && \
-    mkdir -p /opt/scc-deps/lib/cmake/SystemCLanguage && \
-    cp -aL "${systemc_cmake_dir}/." \
-        /opt/scc-deps/lib/cmake/SystemCLanguage/ && \
-    test -f /opt/scc-deps/lib/cmake/SystemCLanguage/SystemCLanguageConfig.cmake
+    cmake --install /tmp/scc-build
+RUN ( \
+        mkdir -p /opt/scc-deps && \
+        find /tmp/scc-conan/full_deploy/host -mindepth 4 -maxdepth 4 \
+            -type d -exec cp -a '{}/.' /opt/scc-deps/ ';' && \
+        systemc_config="$(find /tmp/scc-conan/full_deploy/host/systemc \
+            -name SystemCLanguageConfig.cmake -print -quit)" && \
+        test -n "${systemc_config}" && \
+        systemc_cmake_dir="$(dirname "${systemc_config}")" && \
+        mkdir -p /opt/scc-deps/lib/cmake/SystemCLanguage && \
+        for cmake_file in "${systemc_cmake_dir}"/*.cmake; do \
+            test -f "${cmake_file}" && \
+            cp -L "${cmake_file}" /opt/scc-deps/lib/cmake/SystemCLanguage/; \
+        done && \
+        test -f /opt/scc-deps/lib/cmake/SystemCLanguage/SystemCLanguageConfig.cmake \
+    ) || { \
+        status=$?; \
+        echo "ERROR: SCC runtime dependency copy failed (exit ${status})" >&2; \
+        echo "--- Deployed SystemC entries ---" >&2; \
+        find /tmp/scc-conan/full_deploy/host/systemc -maxdepth 8 \
+            -printf '%y %p -> %l\n' 2>&1 | sort >&2; \
+        echo "--- SystemCLanguage configuration candidates ---" >&2; \
+        find /tmp/scc-conan/full_deploy/host/systemc \
+            -name SystemCLanguageConfig.cmake -printf '%y %p -> %l\n' \
+            2>&1 | sort >&2; \
+        echo "--- Copied SCC dependency layout ---" >&2; \
+        find /opt/scc-deps -maxdepth 5 -printf '%y %p -> %l\n' \
+            2>&1 | sort >&2; \
+        exit "${status}"; \
+    }
 
 FROM ubuntu-base AS eda-scc
 ARG IMAGE_REVISION=unknown
