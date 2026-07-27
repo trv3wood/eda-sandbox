@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "format": "vcs-json",
+  "run": {
+    "status": "passed",
+    "sim_top": "tb_packet_engine",
+    "fsdb": "waves/packet.fsdb"
+  },
+  "modules": [
+    {"name": "packet_engine_top", "hierarchy": "tb_packet_engine.dut"},
+    {"name": "child", "hierarchy": "tb_packet_engine.dut.u_child"}
+  ],
+  "signals": [
+    {
+      "module": "packet_engine_top",
+      "name": "clk",
+      "hierarchy": "tb_packet_engine.dut.clk",
+      "width": 1,
+      "type": "logic"
+    },
+    {
+      "module": "packet_engine_top",
+      "name": "out",
+      "hierarchy": "tb_packet_engine.dut.out",
+      "width": 2,
+      "type": "logic"
+    }
+  ]
+}

@@ -16,7 +16,7 @@ from .extractors import extract_project
 from .generator import generate_model
 from .io import dump_yaml, project_paths
 from .query_evidence import list_evidence, record_query_evidence
-from .tool_producers import finalize_tools
+from .tool_producers import finalize_tools, produce_vcs
 from .verifier import verify_project
 from .workflow import (
     approval_is_valid,
@@ -114,6 +114,8 @@ def build_parser() -> argparse.ArgumentParser:
     tool_commands = tools.add_subparsers(dest="tools_command", required=True)
     tools_finalize = tool_commands.add_parser("finalize")
     tools_finalize.add_argument("project")
+    tools_vcs = tool_commands.add_parser("vcs", help="submit Synopsys VCS work to LSF")
+    tools_vcs.add_argument("project")
     return parser
 
 
@@ -218,7 +220,11 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 result = list_evidence(project_dir)
         elif args.command == "tools":
-            result = finalize_tools(project_dir)
+            result = (
+                finalize_tools(project_dir)
+                if args.tools_command == "finalize"
+                else produce_vcs(project_dir)
+            )
         else:
             parser.error(f"unknown command: {args.command}")
             return 2

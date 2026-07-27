@@ -38,7 +38,7 @@ def build_parser() -> argparse.ArgumentParser:
     query = commands.add_parser("query")
     query.add_argument("bundle")
     query.add_argument(
-        "--backend", choices=["uhdm", "yosys", "verilator"], required=True
+        "--backend", choices=["uhdm", "vcs", "yosys", "verilator"], required=True
     )
     query.add_argument("--kind", required=True)
     query.add_argument("--module")
@@ -50,7 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
     raw = commands.add_parser("raw")
     raw.add_argument("bundle")
     raw.add_argument(
-        "--backend", choices=["uhdm", "yosys", "verilator"], required=True
+        "--backend", choices=["uhdm", "vcs", "yosys", "verilator"], required=True
     )
     raw.add_argument("--pointer", required=True)
     raw.add_argument("--output")

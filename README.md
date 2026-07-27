@@ -84,6 +84,36 @@ BuildKit/GHA cache，并强制单镜像小于 2 GiB（`eda-agent` 小于 500 MiB
 
 这是一个容器化的开源工具链冒烟测试环境，而非虚拟机。它不模拟宿主机内核、CentOS 7 用户空间、LSF、网络挂载、许可证服务器或 VCS、Verdi 等商业工具。最终的 CentOS 7 兼容性检查应使用真实的传统环境。
 
+## Synopsys VCS（开发网）
+
+当开发网节点已通过 PATH 配置 VCS、Verdi/FSDB 工具和许可证时，可在项目
+`manifest.yaml` 中添加 `synopsys_vcs`。`eda-vcs-produce` 将通过
+`bsub -q sim -K` 同步编译、仿真并调用现场提供的 FSDB 索引器；本机不需要
+安装商业工具，只需读取生成的 JSON。
+
+```yaml
+synopsys_vcs:
+  sim_top: tb_top
+  compile_args: []
+  run_args: []
+  fsdb_path: waves/sim.fsdb
+  fsdb_index_command: [site-fsdb-index, "{fsdb}", "{output}"]
+```
+
+`fsdb_path` 必须位于项目内。索引命令必须以独立参数包含 `{fsdb}` 和
+`{output}`，并生成 `vcs-json`（含 `modules` 与 `signals` 数组）。在开发网运行：
+
+```bash
+eda-vcs-produce PROJECT
+systemc-tlm-agent tools finalize PROJECT
+```
+
+然后可在任意位置离线查询：
+
+```bash
+eda-query query PROJECT/.systemc-agent --backend vcs --kind signals --module dut
+```
+
 ## SystemC TLM 技能基准测试
 
 离线安全的 A/B 基准测试规划器、架构门控、评分聚合和报告工作流文档请参见

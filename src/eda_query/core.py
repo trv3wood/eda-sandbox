@@ -9,7 +9,7 @@ from typing import Any
 import jsonschema
 
 SCHEMA_VERSION = 1
-BACKENDS = {"uhdm", "yosys", "verilator"}
+BACKENDS = {"uhdm", "vcs", "yosys", "verilator"}
 STATUSES = {"ok", "empty", "unsupported", "error"}
 
 
@@ -422,6 +422,52 @@ def _uhdm(
     raise NotImplementedError(kind)
 
 
+def _vcs(data: dict[str, Any], kind: str, selectors: dict[str, str]) -> list[dict]:
+    """Query the normalized, site-produced FSDB index without EDA tooling."""
+    if data.get("format") != "vcs-json":
+        raise ValueError("VCS JSON has an unsupported format")
+    modules = data.get("modules")
+    signals = data.get("signals")
+    if not isinstance(modules, list) or not isinstance(signals, list):
+        raise ValueError("VCS JSON must contain modules and signals lists")
+    module_filter = selectors.get("module")
+    if kind == "runs":
+        run = data.get("run", {})
+        return [run] if isinstance(run, dict) else []
+    if kind == "modules":
+        return [
+            {**module, "pointer": f"/modules/{index}"}
+            for index, module in enumerate(modules)
+            if isinstance(module, dict)
+            and (not module_filter or module.get("name") == module_filter)
+        ]
+    if kind == "signals":
+        return [
+            {**signal, "pointer": f"/signals/{index}"}
+            for index, signal in enumerate(signals)
+            if isinstance(signal, dict)
+            and (not module_filter or signal.get("module") == module_filter)
+            and (not selectors.get("name") or signal.get("name") == selectors["name"])
+        ]
+    if kind == "source-locations":
+        records = []
+        for collection, values in (("module", modules), ("signal", signals)):
+            for index, value in enumerate(values):
+                if not isinstance(value, dict) or not value.get("source_location"):
+                    continue
+                if module_filter and value.get("module", value.get("name")) != module_filter:
+                    continue
+                records.append({
+                    "entity_kind": collection,
+                    "name": value.get("name"),
+                    "module": value.get("module"),
+                    "location": value["source_location"],
+                    "pointer": f"/{collection}s/{index}",
+                })
+        return records
+    raise NotImplementedError(kind)
+
+
 def _result(
     backend: str,
     kind: str,
@@ -470,6 +516,8 @@ def query_bundle(
             if backend == "yosys"
             else _verilator(data, kind, selectors)
             if backend == "verilator"
+            else _vcs(data, kind, selectors)
+            if backend == "vcs"
             else _uhdm(data, kind, selectors)
         )
     except NotImplementedError:
@@ -534,6 +582,12 @@ def catalog_bundle(bundle: Path) -> dict[str, Any]:
                 if backend == "yosys"
                 else sorted(module["name"] for module, _ in _verilator_modules(data))
                 if backend == "verilator"
+                else sorted(
+                    str(module.get("name", ""))
+                    for module in data.get("modules", [])
+                    if isinstance(module, dict) and module.get("name")
+                )
+                if backend == "vcs"
                 else sorted(
                     item.get("name") or item.get("definition")
                     for item in data.get("objects", [])

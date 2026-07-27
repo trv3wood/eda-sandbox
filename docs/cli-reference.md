@@ -74,6 +74,24 @@ scripts/systemc-tlm-agent extract PROJECT --skip-tools
 
 当前证据提取支持 DOCX、XLSX 和轻量级 SystemVerilog 模块/端口发现。结构化 EDA 结果记录在 `facts/rtl.json` 和 `.systemc-agent/tools/` 下。CLI 目前不支持将外部基准测试 EDA 包导入 `evidence.jsonl`，也没有专门的 TXT/Markdown 证据注册命令。智能体可以直接读取这些文件，但当前 CLI 无法确定性地将此类观察结果转换为证据 ID。
 
+### Synopsys VCS producer（开发网）
+
+若 manifest 配置 `synopsys_vcs`，在具备 LSF 和 Synopsys 工具的开发网运行：
+
+```bash
+systemc-tlm-agent tools vcs PROJECT
+# 或：eda-vcs-produce PROJECT
+systemc-tlm-agent tools finalize PROJECT
+```
+
+producer 固定使用 `bsub -q sim -K`，因此返回时 VCS 编译、仿真和现场 FSDB
+索引器已结束。它将 `.systemc-agent/tools/vcs.json` 作为可迁移的离线证据，
+并在 `producer-vcs.json` 中记录 LSF 命令、日志、FSDB 摘要和状态。配置了
+`synopsys_vcs` 的项目只有在 VCS producer 结果存在时才能 finalize。
+
+`eda-query` 的 `vcs` backend 支持 `runs`、`modules`、`signals` 和
+`source-locations`。该命令只读取 JSON，绝不提交 LSF 作业或调用商业工具。
+
 #### `architect`
 
 创建八类合约框架，或验证已编辑的合约：

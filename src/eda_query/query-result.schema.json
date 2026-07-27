@@ -11,7 +11,7 @@
   "properties": {
     "schema_version": {"const": 1},
     "query_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-    "backend": {"enum": ["uhdm", "yosys", "verilator"]},
+    "backend": {"enum": ["uhdm", "vcs", "yosys", "verilator"]},
     "kind": {"type": "string", "minLength": 1},
     "selectors": {"type": "object"},
     "source": {
@@ -22,7 +22,7 @@
         "path": {"type": "string", "minLength": 1},
         "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
         "format": {
-          "enum": ["uhdm-binary", "uhdm-json", "yosys-json", "verilator-json"]
+          "enum": ["uhdm-binary", "uhdm-json", "vcs-json", "yosys-json", "verilator-json"]
         }
       }
     },
