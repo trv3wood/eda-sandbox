@@ -25,15 +25,15 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Set image name
         run: echo "IMAGE=${REGISTRY}/${GITHUB_REPOSITORY_OWNER,,}/eda-scc:${GITHUB_SHA}" >> "$GITHUB_ENV"
-      - name: Warm SCC builder cache
+      - name: Warm SCC compile cache
         uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile.ubuntu
-          target: scc-builder
+          target: scc-compile
           platforms: linux/amd64
-          cache-from: type=gha,scope=eda-scc-builder
-          cache-to: type=gha,mode=max,scope=eda-scc-builder
+          cache-from: type=gha,scope=eda-scc-compile
+          cache-to: type=gha,mode=max,scope=eda-scc-compile
       - uses: docker/build-push-action@v6
         with:
           context: .
@@ -44,7 +44,7 @@ jobs:
           build-args: IMAGE_REVISION=${{ github.sha }}
           load: true
           cache-from: |
-            type=gha,scope=eda-scc-builder
+            type=gha,scope=eda-scc-compile
             type=gha,scope=eda-scc
           cache-to: type=gha,mode=max,scope=eda-scc
       - name: Smoke test and size gate
