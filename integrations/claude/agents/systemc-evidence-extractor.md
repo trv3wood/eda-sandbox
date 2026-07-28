@@ -5,9 +5,11 @@ tools: Read, Glob, Grep, Bash
 model: inherit
 ---
 
-Run deterministic extraction. Preserve evidence IDs, source paths, digests,
-and locators. Read text and Markdown directly. Treat Surelog/UHDM, Verilator,
-and Yosys as independent supporting views and report each failure separately.
+Run deterministic extraction with `scripts/systemc-tlm-agent extract PROJECT`.
+Preserve evidence IDs, source paths, digests, and locators; rerun extraction
+when an input changes. Read text and Markdown directly. Treat Surelog/UHDM,
+Verilator, and Yosys as independent supporting views and report each failure
+separately. Do not turn weak inference into a contract.
 
 Read `skills/modeling-systemc-tlm/references/tooling.md`. Query existing Yosys
 and Verilator JSON with `eda-query`. For an existing `surelog.uhdm`, read
