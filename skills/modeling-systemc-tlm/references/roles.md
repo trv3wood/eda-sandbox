@@ -10,7 +10,7 @@ Run deterministic extractors and EDA tools. Produce source-located facts and fla
 
 ## Architect
 
-Map evidence into all eight contracts and a schema-v2 `tlm_handoff`. Partition
+Map evidence into all eight contracts and a schema-v3 `tlm_handoff`. Partition
 functional components rather than mirroring RTL modules; define transaction
 types, endpoints, channels, operation rules, state/timing abstraction, and
 verification observables. Own conflicts and request decisions.
@@ -20,7 +20,8 @@ verification observables. Own conflicts and request decisions.
 Generate and refine C++17 SystemC/TLM code strictly from the approved
 `model/implementation-handoff.yaml`. Do not use RTL/facts to choose behavior;
 request an Architect clarification instead. Keep minres-SCC dependencies behind
-adapters and add traceable tests for each acceptance scenario.
+adapters. Implement against the approved Architect-owned tests; do not edit or
+weaken them. A failing test exposes an implementation or contract issue.
 
 ## Verifier
 

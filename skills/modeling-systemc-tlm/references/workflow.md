@@ -10,6 +10,7 @@ manifest.yaml
   contracts/architecture.yaml
   contracts/conflicts.yaml
   contracts/approval.yaml
+  contracts/testbench/{testbench.yaml,include/,tests/}
   model/
   verification/report.yaml
 ```
@@ -37,7 +38,9 @@ has one or more `evidence_ids`. Missing RTL is unresolved evidence, not
 `not_applicable`; an empty model partition continues to block approval and
 generation. Use `not_applicable` only with a reason in `summary`.
 
-Generation requires `approval.yaml`. Approval hashes the manifest, extracted facts, architecture, and conflicts. Any subsequent edit makes approval stale.
+Generation requires `approval.yaml`. Approval hashes the manifest, extracted
+facts, architecture, conflicts, and every Architect-owned contract-testbench
+file. Any subsequent edit makes approval stale.
 
 Verification levels:
 

@@ -5,7 +5,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .io import dump_yaml, load_json, load_yaml, object_digest, project_paths
+from .io import (
+    dump_yaml,
+    file_digest,
+    load_json,
+    load_yaml,
+    object_digest,
+    project_paths,
+)
 from .query_evidence import all_evidence
 
 
@@ -49,7 +56,7 @@ def create_architecture_draft(project_dir: Path) -> dict[str, Any]:
             "open_questions": [],
         }
     architecture = {
-        "schema_version": 2,
+        "schema_version": 3,
         "project": manifest["name"],
         "top": manifest.get("target_top", manifest.get("top")),
         "status": "draft",
@@ -88,8 +95,8 @@ def validate_architecture(project_dir: Path) -> list[str]:
     paths = project_paths(project_dir)
     architecture = load_yaml(paths["contracts"])
     errors = []
-    if architecture.get("schema_version") != 2:
-        errors.append("schema_version must be 2 for approval")
+    if architecture.get("schema_version") != 3:
+        errors.append("schema_version must be 3 for approval")
     categories = architecture.get("categories", {})
     evidence_ids = {item["id"] for item in all_evidence(project_dir)}
     for key, _ in CONTRACT_CATEGORIES:
@@ -113,6 +120,7 @@ def validate_architecture(project_dir: Path) -> list[str]:
                         f"{key}.items[{index}]: unknown evidence ID {evidence_id}"
                     )
     _validate_tlm_handoff(architecture, evidence_ids, errors)
+    _validate_contract_testbench(project_dir, architecture, errors)
 
     conflicts = load_yaml(paths["conflicts"]) if paths["conflicts"].exists() else {}
     unresolved = [
@@ -291,10 +299,117 @@ def _validate_tlm_handoff(
             if not isinstance(scenario, dict):
                 errors.append(f"{path}: must be a mapping")
                 continue
-            for key in ("name", "given", "when", "then"):
+            for key in ("id", "name", "given", "when", "then"):
                 if not _non_empty_text(scenario.get(key)):
                     errors.append(f"{path}: {key} is required")
+            test_ids = scenario.get("test_ids")
+            if not isinstance(test_ids, list) or not test_ids:
+                errors.append(f"{path}: test_ids must not be empty")
             _validate_evidence_ids(scenario.get("evidence_ids"), evidence_ids, path, errors)
+
+
+def _safe_contract_path(root: Path, value: Any) -> Path | None:
+    if not _non_empty_text(value):
+        return None
+    candidate = Path(value)
+    if candidate.is_absolute() or ".." in candidate.parts:
+        return None
+    resolved = (root / candidate).resolve()
+    try:
+        resolved.relative_to(root.resolve())
+    except ValueError:
+        return None
+    return resolved
+
+
+def _validate_contract_testbench(
+    project_dir: Path, architecture: dict[str, Any], errors: list[str]
+) -> None:
+    paths = project_paths(project_dir)
+    manifest_path = paths["contract_test_manifest"]
+    if not manifest_path.is_file():
+        errors.append("contract testbench/testbench.yaml is required")
+        return
+    try:
+        manifest = load_yaml(manifest_path)
+    except (ValueError, FileNotFoundError) as exc:
+        errors.append(f"contract testbench manifest is invalid: {exc}")
+        return
+    if manifest.get("schema_version") != 1:
+        errors.append("contract testbench schema_version must be 1")
+    root = paths["contract_testbench"]
+    headers = manifest.get("public_headers")
+    if not isinstance(headers, list) or not headers:
+        errors.append("contract testbench public_headers must not be empty")
+        headers = []
+    for index, value in enumerate(headers, start=1):
+        path = _safe_contract_path(root, value)
+        if path is None or not path.is_file():
+            errors.append(f"contract testbench public_headers[{index}] is invalid or missing")
+
+    scenarios = architecture.get("tlm_handoff", {}).get("acceptance_scenarios", [])
+    scenario_tests = {
+        scenario.get("id"): set(scenario.get("test_ids", []))
+        for scenario in scenarios
+        if isinstance(scenario, dict) and _non_empty_text(scenario.get("id"))
+    }
+    tests = manifest.get("tests")
+    if not isinstance(tests, list) or not tests:
+        errors.append("contract testbench tests must not be empty")
+        tests = []
+    seen: set[str] = set()
+    manifest_coverage: dict[str, set[str]] = {}
+    for index, test in enumerate(tests, start=1):
+        prefix = f"contract testbench tests[{index}]"
+        if not isinstance(test, dict):
+            errors.append(f"{prefix} must be a mapping")
+            continue
+        test_id = test.get("id")
+        if not _non_empty_text(test_id):
+            errors.append(f"{prefix}.id is required")
+            continue
+        if test_id in seen:
+            errors.append(f"{prefix}.id duplicates {test_id}")
+        seen.add(test_id)
+        source = _safe_contract_path(root, test.get("source"))
+        if source is None or not source.is_file() or source.suffix not in {".cc", ".cpp", ".cxx"}:
+            errors.append(f"{prefix}.source is invalid or missing")
+        timeout = test.get("timeout_seconds", 30)
+        if not isinstance(timeout, int) or timeout <= 0:
+            errors.append(f"{prefix}.timeout_seconds must be a positive integer")
+        scenario_ids = test.get("scenario_ids")
+        if not isinstance(scenario_ids, list) or not scenario_ids:
+            errors.append(f"{prefix}.scenario_ids must not be empty")
+            continue
+        for scenario_id in scenario_ids:
+            if scenario_id not in scenario_tests:
+                errors.append(f"{prefix}: unknown acceptance scenario {scenario_id}")
+            manifest_coverage.setdefault(scenario_id, set()).add(test_id)
+    for scenario_id, declared_tests in scenario_tests.items():
+        actual = manifest_coverage.get(scenario_id, set())
+        if not declared_tests:
+            continue
+        if declared_tests != actual:
+            errors.append(
+                f"acceptance scenario {scenario_id}: test_ids must exactly match testbench coverage"
+            )
+
+
+def _contract_testbench_payload(project_dir: Path) -> dict[str, Any]:
+    paths = project_paths(project_dir)
+    root = paths["contract_testbench"]
+    if not root.is_dir():
+        return {"files": []}
+    return {
+        "files": [
+            {
+                "path": str(path.relative_to(root)),
+                "sha256": file_digest(path),
+            }
+            for path in sorted(root.rglob("*"))
+            if path.is_file()
+        ]
+    }
 
 
 def approval_payload(project_dir: Path) -> dict[str, Any]:
@@ -312,6 +427,7 @@ def approval_payload(project_dir: Path) -> dict[str, Any]:
         "evidence": all_evidence(project_dir),
         "architecture": architecture,
         "conflicts": conflicts,
+        "contract_testbench": _contract_testbench_payload(project_dir),
     }
 
 
@@ -322,7 +438,7 @@ def approve(project_dir: Path, *, approver: str) -> dict[str, Any]:
     paths = project_paths(project_dir)
     payload = approval_payload(project_dir)
     approval = {
-        "schema_version": 1,
+        "schema_version": 2,
         "status": "approved",
         "approver": approver,
         "approved_at": datetime.now(timezone.utc).isoformat(),

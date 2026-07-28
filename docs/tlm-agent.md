@@ -99,9 +99,9 @@ scripts/eda-run --work WORK agent \
 `systemc-tlm-agent evidence record` 写入 `query-evidence.jsonl`。UHDM Python
 脚本输出仅用于探索和定位，必须回到 RTL/Spec 的源定位后才能成为合同证据。
 
-## Architecture v2 与 Implementer handoff
+## Architecture v3、合同测试与 Implementer handoff
 
-`architect` 创建 `schema_version: 2` 草案。审批时，除了八类合同和无未决冲突外，
+`architect` 创建 `schema_version: 3` 草案。审批时，除了八类合同和无未决冲突外，
 还必须存在完整 `tlm_handoff`：
 
 - `policy`：固定 `loosely-timed-tlm-2.0`、`b_transport`，并禁止 RTL/周期级细节。
@@ -110,11 +110,21 @@ scripts/eda-run --work WORK agent \
   operation effect/completion、状态/并发、服务时延、错误处理和 observable。
 - `channels`：明确连接 source/destination endpoint、事务、顺序、所有权、背压和
   completion 规则。
-- `acceptance_scenarios`：带 evidence ID 的 Given/When/Then 事务级验收场景。
+- `acceptance_scenarios`：带稳定 `id`、evidence ID 和 `test_ids` 的 Given/When/Then
+  事务级验收场景。
+
+Architect 还必须在 `contracts/testbench/` 提交可执行的 C++ 黑盒测试：
+
+- `testbench.yaml` 声明 Architect 所有的公共头文件、测试源码、超时和场景覆盖关系；
+- `include/` 固化事务类型、寄存器/API 常量和可观察结果；
+- `tests/` 只通过批准的事务接口驱动模型，不依赖 RTL 私有状态。
+
+validator 会双向检查 scenario 与 test 的覆盖，批准哈希包含测试目录下每个文件。
+因此 Implementer 不能修改测试来迁就实现；合同或测试变化都必须重新人工批准。
 
 `rtl_traceability` 可保留功能组件与 RTL 证据的关联，但它不决定 TLM 模块边界。
 校验器会检查名称唯一性、evidence ID、事务和 endpoint 引用、端点方向、时延值及全部
-必填语义。旧版 v1 architecture 不可获批准。
+必填语义。旧版 architecture 不可获批准。
 
 批准后的 `generate` 把 `tlm_handoff` 原样写到
 `model/implementation-handoff.yaml`。这是 Implementer 的唯一行为输入；如果它不足
@@ -130,7 +140,7 @@ operation 规则保留为实现提示。生成器不自动连接 channel，也�
 
 1. CMake configure 与 C++ compile。
 2. CTest smoke/unit tests。
-3. 合同导向 transaction tests。
+3. 清单中全部 `contract::<id>` CTest；缺失、未发现或失败均使验证失败。
 4. 使用相同 stimulus 和明确 normalization/comparison adapter 的 RTL differential test。
 
 `verify --backend auto` 在主机存在 `/opt/scc` 时走 local；否则调用 Compose 的 `eda-scc`

@@ -18,7 +18,7 @@ Conflict policy:
 - Keep `status: open` until a named decision is recorded.
 - Do not silently prefer Spec over RTL or RTL over Spec. The user decides whether the model represents intended behavior, implemented behavior, or both as variants.
 
-## Implementer TLM Handoff (schema version 2)
+## Implementer TLM Handoff (schema version 3)
 
 The approved `tlm_handoff` is the Implementer's behavioral input. Facts and RTL
 remain traceability material for the Architect; the Implementer must request a
@@ -35,7 +35,10 @@ requires evidence IDs, named inbound/outbound endpoints, operation rules
 error behavior, and observables. `channels` connect endpoints and define the
 transaction type, ordering, ownership, backpressure, and completion semantics.
 `acceptance_scenarios` provide evidence-backed Given/When/Then transaction
-tests. `rtl_traceability` is optional evidence navigation only and must not
+tests. Each scenario has a stable `id` and non-empty `test_ids`. The Architect
+owns `contracts/testbench/testbench.yaml`, public headers, and executable C++
+black-box tests; manifest coverage and scenario `test_ids` must match exactly.
+All of these files are part of the approval hash. `rtl_traceability` is optional evidence navigation only and must not
 set TLM component boundaries.
 
 Minimal handoff shape:
