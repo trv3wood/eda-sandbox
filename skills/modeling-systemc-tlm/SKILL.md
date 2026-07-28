@@ -35,6 +35,17 @@ Follow `references/roles.md`. Keep Planner, Evidence Extractor, Architect, Imple
 - A changed input, fact, contract, or conflict file invalidates approval and blocks regeneration.
 - Report verification limitations. Do not label a model RTL-equivalent when no shared-stimulus comparator exists.
 
+## Reusable SystemC Components
+
+Before writing infrastructure already offered by a maintained library, inspect
+[Minres/SystemC-Components](https://github.com/Minres/SystemC-Components).
+It provides TLM register/target/router utilities, transaction tracing, and
+several bus-protocol components. Reuse such components only after confirming
+that their protocol variant and abstraction level match the evidence-backed
+contract. In particular, do not equate a listed TileLink-UH adapter with an
+OpenTitan TL-UL interface, and do not infer an I2C behavioral component merely
+from the repository's general SystemC/TLM support.
+
 ## Tool Routing
 
 Read `references/tooling.md` before choosing local or container execution. Do not launch large image builds or minres-SCC recompiles automatically; provide the exact command for the user to run.
