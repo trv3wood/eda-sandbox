@@ -202,7 +202,7 @@ class WorkflowTest(unittest.TestCase):
             self.assertTrue((paths["model"] / "CMakeLists.txt").exists())
             self.assertTrue((paths["model"] / "implementation-handoff.yaml").exists())
             self.assertIn(
-                "simple_target_socket<PacketServiceModel> submit",
+                "simple_target_socket_optional<PacketServiceModel> submit",
                 (paths["model"] / "include" / "packet_service.hpp").read_text(),
             )
 

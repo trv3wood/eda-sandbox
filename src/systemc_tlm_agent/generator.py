@@ -29,13 +29,13 @@ def _module_header(module: dict) -> str:
     targets = [endpoint for endpoint in module["endpoints"] if endpoint["direction"] == "inbound"]
     initiators = [endpoint for endpoint in module["endpoints"] if endpoint["direction"] == "outbound"]
     sockets = "\n".join(
-        f"    tlm_utils::simple_target_socket<{cls}> {_endpoint_member(endpoint)};"
+        f"    tlm_utils::simple_target_socket_optional<{cls}> {_endpoint_member(endpoint)};"
         for endpoint in targets
     )
     if sockets and initiators:
         sockets += "\n"
     sockets += "\n".join(
-        f"    tlm_utils::simple_initiator_socket<{cls}> {_endpoint_member(endpoint)};"
+        f"    tlm_utils::simple_initiator_socket_optional<{cls}> {_endpoint_member(endpoint)};"
         for endpoint in initiators
     )
     return f"""#ifndef {guard}
@@ -139,7 +139,7 @@ inline void report_warning(const char* source, const std::string& message) {
 """
 
 
-def _top_header(modules: list[dict]) -> str:
+def _top_header(modules: list[dict], channels: list[dict]) -> str:
     includes = "\n".join(
         f'#include "{_identifier(module["name"])}.hpp"' for module in modules
     )
@@ -147,14 +147,50 @@ def _top_header(modules: list[dict]) -> str:
         f"    {_class_name(module['name'])} {_identifier(module['name'])};"
         for module in modules
     )
+    connected_targets = {
+        (channel["to"]["module"], channel["to"]["endpoint"])
+        for channel in channels
+    }
+    # Unconnected inbound endpoints are integration boundaries. They remain
+    # optional instead of being consumed by an internal smoke-test stub.
+    external_targets = []
+    stub_declarations = "\n".join(
+        "    tlm_utils::simple_initiator_socket<ModelTop> "
+        f"{_identifier(module)}_{_identifier(endpoint)}_stub;"
+        for module, endpoint in external_targets
+    )
+    declarations = "\n".join(item for item in (declarations, stub_declarations) if item)
     initializers = ",\n        ".join(
         f'{_identifier(module["name"])}("{_identifier(module["name"])}", '
         f'sc_core::sc_time({module["timing"]["service_latency_ns"]}, sc_core::SC_NS))'
         for module in modules
     )
+    stub_initializers = ",\n        ".join(
+        f'{_identifier(module)}_{_identifier(endpoint)}_stub('
+        f'"{_identifier(module)}_{_identifier(endpoint)}_stub")'
+        for module, endpoint in external_targets
+    )
+    initializers = ",\n        ".join(
+        item for item in (initializers, stub_initializers) if item
+    )
     initializers = " : sc_core::sc_module(name)" + (
         ",\n        " + initializers if initializers else ""
     )
+    bindings = "\n".join(
+        "        "
+        f"{_identifier(channel['from']['module'])}.{_identifier(channel['from']['endpoint'])}"
+        ".bind("
+        f"{_identifier(channel['to']['module'])}.{_identifier(channel['to']['endpoint'])}"
+        ");"
+        for channel in channels
+    )
+    stub_bindings = "\n".join(
+        "        "
+        f"{_identifier(module)}_{_identifier(endpoint)}_stub.bind("
+        f"{_identifier(module)}.{_identifier(endpoint)});"
+        for module, endpoint in external_targets
+    )
+    bindings = "\n".join(item for item in (bindings, stub_bindings) if item)
     return f"""#pragma once
 
 #include <systemc>
@@ -166,7 +202,9 @@ class ModelTop : public sc_core::sc_module {{
 public:
 {declarations}
 
-    explicit ModelTop(sc_core::sc_module_name name){initializers} {{}}
+    explicit ModelTop(sc_core::sc_module_name name){initializers} {{
+{bindings}
+    }}
 }};
 
 }}  // namespace generated
@@ -246,7 +284,9 @@ def generate_model(project_dir: Path) -> dict:
         (source_dir / f"{_identifier(name)}.cpp").write_text(
             _module_source(module), encoding="utf-8"
         )
-    (include_dir / "model_top.hpp").write_text(_top_header(modules), encoding="utf-8")
+    (include_dir / "model_top.hpp").write_text(
+        _top_header(modules, handoff["channels"]), encoding="utf-8"
+    )
     (test_dir / "model_smoke.cpp").write_text(_smoke_test(), encoding="utf-8")
     (paths["model"] / "CMakeLists.txt").write_text(_cmake(modules), encoding="utf-8")
     dump_yaml(paths["model"] / "implementation-handoff.yaml", handoff)

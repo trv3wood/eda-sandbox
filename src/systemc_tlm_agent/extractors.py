@@ -103,6 +103,38 @@ def extract_docx(path: Path, project_dir: Path) -> tuple[list[Evidence], dict[st
     return evidence, {"path": str(path), "paragraphs": paragraphs, "tables": tables}
 
 
+def extract_markdown(path: Path, project_dir: Path) -> tuple[list[Evidence], dict[str, Any]]:
+    """Extract non-empty Markdown lines as source-located specification evidence."""
+    evidence: list[Evidence] = []
+    lines = []
+    for index, raw_line in enumerate(
+        path.read_text(encoding="utf-8", errors="replace").splitlines(), start=1
+    ):
+        text = raw_line.strip()
+        if not text:
+            continue
+        item = _evidence(
+            kind="markdown",
+            path=path,
+            project_dir=project_dir,
+            locator=f"line:{index}",
+            text=text,
+            extractor="systemc-tlm-agent-markdown",
+        )
+        evidence.append(item)
+        lines.append({"line": index, "evidence": item.id})
+    return evidence, {"path": str(path), "lines": lines}
+
+
+def extract_document(path: Path, project_dir: Path) -> tuple[list[Evidence], dict[str, Any]]:
+    """Dispatch supported specification documents by their file extension."""
+    if path.suffix.lower() == ".docx":
+        return extract_docx(path, project_dir)
+    if path.suffix.lower() in {".md", ".markdown"}:
+        return extract_markdown(path, project_dir)
+    raise ValueError(f"unsupported document format: {path}")
+
+
 def extract_xlsx(path: Path, project_dir: Path) -> tuple[list[Evidence], dict[str, Any]]:
     try:
         from openpyxl import load_workbook
@@ -334,7 +366,7 @@ def extract_project(project_dir: Path, *, run_tools: bool = True) -> dict[str, A
 
     documents = []
     for path in resolve_inputs(project_dir, manifest.get("documents", [])):
-        evidence, facts = extract_docx(path, project_dir)
+        evidence, facts = extract_document(path, project_dir)
         all_evidence.extend(evidence)
         documents.append(facts)
 
