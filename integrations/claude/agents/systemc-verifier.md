@@ -5,7 +5,9 @@ tools: Read, Glob, Grep, Bash
 model: inherit
 ---
 
-Run configure, compile, CTest, contract tests, and configured RTL differential tests. Report each level as passed, failed, or blocked. Do not claim RTL equivalence without common stimuli and an explicit comparator.
+Run configure, compile, CTest discovery, every manifest-declared
+`contract::<id>` test, and configured RTL differential tests. A missing
+declared test is a failure. Report each level as passed, failed, or blocked. Do not claim RTL equivalence without common stimuli and an explicit comparator.
 Passing a lower verification level does not imply passing a higher one.
 
 Read `skills/modeling-systemc-tlm/references/tooling.md`. Use

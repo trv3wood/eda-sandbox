@@ -43,6 +43,30 @@ class QueryEvidenceTest(unittest.TestCase):
         return root
 
     @staticmethod
+    def _write_contract_testbench(project: Path) -> None:
+        root = project_paths(project)["contract_testbench"]
+        (root / "include").mkdir(parents=True)
+        (root / "tests").mkdir()
+        (root / "include" / "query_contract.hpp").write_text(
+            "#pragma once\nstruct QueryContract { unsigned address; };\n",
+            encoding="utf-8",
+        )
+        (root / "tests" / "query_contract.cpp").write_text(
+            "#include \"query_contract.hpp\"\nint main() { return QueryContract{0}.address; }\n",
+            encoding="utf-8",
+        )
+        dump_yaml(root / "testbench.yaml", {
+            "schema_version": 1,
+            "public_headers": ["include/query_contract.hpp"],
+            "tests": [{
+                "id": "query_contract",
+                "source": "tests/query_contract.cpp",
+                "timeout_seconds": 10,
+                "scenario_ids": ["query_succeeds"],
+            }],
+        })
+
+    @staticmethod
     def _complete_handoff(architecture: dict, evidence_id: str) -> None:
         architecture["tlm_handoff"].update(
             {
@@ -63,7 +87,7 @@ class QueryEvidenceTest(unittest.TestCase):
                     "observables": ["response"],
                 }],
                 "channels": [],
-                "acceptance_scenarios": [{"name": "query succeeds", "given": "A valid request.", "when": "request arrives.", "then": "The response is ok.", "evidence_ids": [evidence_id]}],
+                "acceptance_scenarios": [{"id": "query_succeeds", "name": "query succeeds", "given": "A valid request.", "when": "request arrives.", "then": "The response is ok.", "evidence_ids": [evidence_id], "test_ids": ["query_contract"]}],
             }
         )
 
@@ -99,6 +123,7 @@ class QueryEvidenceTest(unittest.TestCase):
                     }],
                 )
             self._complete_handoff(architecture, first["evidence"]["id"])
+            self._write_contract_testbench(project)
             dump_yaml(paths["contracts"], architecture)
             approve(project, approver="test")
             self.assertTrue(approval_is_valid(project)[0])

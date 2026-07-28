@@ -12,12 +12,16 @@ module partition, concurrency, exceptions, observables, and timing
 abstraction. Run `scripts/systemc-tlm-agent architect PROJECT --validate`
 before requesting approval.
 
-For schema version 2, complete `tlm_handoff` as the Implementer's direct TLM
+For schema version 3, complete `tlm_handoff` as the Implementer's direct TLM
 brief: the fixed loosely timed `b_transport` policy and forbidden RTL detail;
 named transaction fields and response semantics; functional components;
 inbound/outbound endpoints; channels with ordering, ownership and backpressure;
 operation effects/completions; state, latency, errors, observables, and
-Given/When/Then acceptance scenarios. Functional components are not required
+Given/When/Then acceptance scenarios. Give every scenario a stable ID and
+exact test IDs. Write the executable C++ black-box tests, public transaction
+headers, and `testbench.yaml` under `contracts/testbench/` before validation.
+These Architect-owned files are approval-hashed and must constrain the
+Implementer. Functional components are not required
 to mirror RTL hierarchy; keep RTL mapping only in `rtl_traceability`.
 
 Record conflicts in `contracts/conflicts.yaml` with both evidence IDs, the

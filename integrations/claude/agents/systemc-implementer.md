@@ -8,10 +8,12 @@ model: inherit
 Generate model artifacts only through
 `scripts/systemc-tlm-agent generate PROJECT`, and only from a valid explicit
 human approval created with `approve --approver NAME`. Approval hashes the
-manifest, extracted facts, architecture, conflicts, and evidence; any edit to
+manifest, extracted facts, architecture, conflicts, evidence, and the complete
+Architect-owned contract testbench; any edit to
 those inputs makes it stale and blocks regeneration. Use loosely timed TLM-2.0
 by default, isolate minres-SCC-specific facilities, and add contract-traceable
-tests. Never reinterpret unresolved behavior.
+tests. Never modify or weaken the approved contract testbench to obtain a pass.
+Never reinterpret unresolved behavior.
 
 Use the generated `model/implementation-handoff.yaml` as the sole behavioral
 input. Implement its functional modules, transactions, endpoints, channel

@@ -6,7 +6,9 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from .io import dump_json, load_json, project_paths
+import json
+
+from .io import dump_json, load_json, load_yaml, project_paths
 
 
 def _execute(command: list[str], cwd: Path) -> dict[str, Any]:
@@ -108,8 +110,49 @@ def verify_project(project_dir: Path, *, backend: str = "auto") -> dict[str, Any
         if configure["returncode"] == 0
         else {"status": "skipped", "returncode": 1, "output": ""}
     )
-    tests = (
-        _execute(["ctest", "--test-dir", str(build_dir), "--output-on-failure"], project_dir)
+    discovery = (
+        _execute(["ctest", "--test-dir", str(build_dir), "--show-only=json-v1"], project_dir)
+        if build["returncode"] == 0
+        else {"status": "skipped", "returncode": 1, "output": ""}
+    )
+    expected_tests = {
+        f"contract::{test['id']}"
+        for test in load_yaml(paths["contract_test_manifest"]).get("tests", [])
+    }
+    discovered_tests: set[str] = set()
+    if discovery["status"] == "passed":
+        try:
+            discovered_tests = {
+                item["name"] for item in json.loads(discovery["output"]).get("tests", [])
+            }
+        except (json.JSONDecodeError, KeyError, TypeError):
+            discovery["status"] = "failed"
+            discovery["returncode"] = 1
+    missing_tests = sorted(expected_tests - discovered_tests)
+    contract_tests = (
+        _execute(
+            [
+                "ctest", "--test-dir", str(build_dir), "--output-on-failure",
+                "-R", "^contract::",
+            ],
+            project_dir,
+        )
+        if build["returncode"] == 0 and not missing_tests and discovery["status"] == "passed"
+        else {
+            "status": "failed" if build["returncode"] == 0 else "skipped",
+            "returncode": 1,
+            "output": "",
+            "missing": missing_tests,
+        }
+    )
+    smoke_tests = (
+        _execute(
+            [
+                "ctest", "--test-dir", str(build_dir), "--output-on-failure",
+                "-R", "^model_smoke$",
+            ],
+            project_dir,
+        )
         if build["returncode"] == 0
         else {"status": "skipped", "returncode": 1, "output": ""}
     )
@@ -129,11 +172,14 @@ def verify_project(project_dir: Path, *, backend: str = "auto") -> dict[str, Any
         "backend": "local",
         "configure": configure,
         "build": build,
-        "tests": tests,
+        "test_discovery": discovery,
+        "smoke_tests": smoke_tests,
+        "contract_tests": contract_tests,
         "differential": differential,
         "status": (
             "passed_with_differential_blocked"
-            if tests["status"] == "passed"
+            if smoke_tests["status"] == "passed"
+            and contract_tests["status"] == "passed"
             else "failed"
         ),
     }

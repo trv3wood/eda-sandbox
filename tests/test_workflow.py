@@ -26,6 +26,33 @@ class Args:
 
 class WorkflowTest(unittest.TestCase):
     @staticmethod
+    def _write_contract_testbench(project: Path, scenario_id: str, test_id: str) -> None:
+        root = project_paths(project)["contract_testbench"]
+        (root / "include").mkdir(parents=True)
+        (root / "tests").mkdir()
+        (root / "include" / "packet_contract.hpp").write_text(
+            "#pragma once\nstruct PacketContract { unsigned length; };\n",
+            encoding="utf-8",
+        )
+        (root / "tests" / "packet_contract.cpp").write_text(
+            "#include \"packet_contract.hpp\"\nint main() { return PacketContract{1}.length == 1 ? 0 : 1; }\n",
+            encoding="utf-8",
+        )
+        dump_yaml(
+            root / "testbench.yaml",
+            {
+                "schema_version": 1,
+                "public_headers": ["include/packet_contract.hpp"],
+                "tests": [{
+                    "id": test_id,
+                    "source": "tests/packet_contract.cpp",
+                    "timeout_seconds": 10,
+                    "scenario_ids": [scenario_id],
+                }],
+            },
+        )
+
+    @staticmethod
     def _complete_handoff(architecture: dict, evidence_id: str) -> None:
         architecture["tlm_handoff"].update(
             {
@@ -53,11 +80,13 @@ class WorkflowTest(unittest.TestCase):
                 }],
                 "channels": [],
                 "acceptance_scenarios": [{
+                    "id": "valid_packet",
                     "name": "valid packet completes",
                     "given": "A valid packet request.",
                     "when": "submit receives the request.",
                     "then": "A completion response is returned after the service latency.",
                     "evidence_ids": [evidence_id],
+                    "test_ids": ["packet_contract"],
                 }],
             }
         )
@@ -192,6 +221,7 @@ class WorkflowTest(unittest.TestCase):
                     }
                 )
             self._complete_handoff(architecture, evidence_id)
+            self._write_contract_testbench(project, "valid_packet", "packet_contract")
             dump_yaml(paths["contracts"], architecture)
             self.assertEqual(validate_architecture(project), [])
 
@@ -202,6 +232,10 @@ class WorkflowTest(unittest.TestCase):
             self.assertTrue((paths["model"] / "CMakeLists.txt").exists())
             self.assertTrue((paths["model"] / "implementation-handoff.yaml").exists())
             self.assertIn(
+                "add_test(NAME contract::packet_contract",
+                (paths["model"] / "CMakeLists.txt").read_text(),
+            )
+            self.assertIn(
                 "simple_target_socket_optional<PacketServiceModel> submit",
                 (paths["model"] / "include" / "packet_service.hpp").read_text(),
             )
@@ -211,6 +245,13 @@ class WorkflowTest(unittest.TestCase):
             self.assertFalse(approval_is_valid(project)[0])
             with self.assertRaises(ValueError):
                 generate_model(project)
+
+            architecture["categories"]["functional_intent"]["summary"] = "fixture contract"
+            dump_yaml(paths["contracts"], architecture)
+            approve(project, approver="unit-test")
+            test_source = paths["contract_testbench"] / "tests" / "packet_contract.cpp"
+            test_source.write_text(test_source.read_text() + "// changed\n", encoding="utf-8")
+            self.assertFalse(approval_is_valid(project)[0])
 
     def test_v1_contract_cannot_be_approved(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -227,7 +268,7 @@ class WorkflowTest(unittest.TestCase):
             architecture = load_yaml(paths["contracts"])
             architecture["schema_version"] = 1
             dump_yaml(paths["contracts"], architecture)
-            self.assertIn("schema_version must be 2 for approval", validate_architecture(project))
+            self.assertIn("schema_version must be 3 for approval", validate_architecture(project))
 
     def test_channel_must_resolve_tlm_endpoints(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -250,6 +291,7 @@ class WorkflowTest(unittest.TestCase):
                     items=[{"statement": "defined", "evidence_ids": [evidence_id]}],
                 )
             self._complete_handoff(architecture, evidence_id)
+            self._write_contract_testbench(project, "valid_packet", "packet_contract")
             architecture["tlm_handoff"]["channels"] = [{
                 "name": "bad_channel",
                 "from": {"module": "packet_service", "endpoint": "missing"},

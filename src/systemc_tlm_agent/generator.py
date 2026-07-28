@@ -211,10 +211,27 @@ public:
 """
 
 
-def _cmake(modules: list[dict]) -> str:
+def _cmake(modules: list[dict], testbench: dict) -> str:
     sources = "\n    ".join(
         f"src/{_identifier(module['name'])}.cpp" for module in modules
     )
+    contract_tests = []
+    for test in testbench["tests"]:
+        test_id = _identifier(test["id"])
+        source = test["source"]
+        timeout = int(test.get("timeout_seconds", 30))
+        contract_tests.append(
+            f"""add_executable(contract_{test_id}
+    ${{CMAKE_CURRENT_SOURCE_DIR}}/../.systemc-agent/contracts/testbench/{source}
+)
+target_link_libraries(contract_{test_id} PRIVATE generated_model)
+target_include_directories(contract_{test_id} PRIVATE
+    ${{CMAKE_CURRENT_SOURCE_DIR}}/../.systemc-agent/contracts/testbench/include
+)
+add_test(NAME contract::{test['id']} COMMAND contract_{test_id})
+set_tests_properties(contract::{test['id']} PROPERTIES TIMEOUT {timeout})"""
+        )
+    contract_test_cmake = "\n\n".join(contract_tests)
     return f"""cmake_minimum_required(VERSION 3.24)
 project(generated_systemc_model LANGUAGES CXX)
 
@@ -243,6 +260,8 @@ enable_testing()
 add_executable(model_smoke tests/model_smoke.cpp)
 target_link_libraries(model_smoke PRIVATE generated_model)
 add_test(NAME model_smoke COMMAND model_smoke)
+
+{contract_test_cmake}
 """
 
 
@@ -268,6 +287,7 @@ def generate_model(project_dir: Path) -> dict:
     top_name = architecture["top"]
     handoff = architecture["tlm_handoff"]
     modules = handoff["functional_modules"]
+    testbench = load_yaml(paths["contract_test_manifest"])
 
     include_dir = paths["model"] / "include"
     source_dir = paths["model"] / "src"
@@ -288,7 +308,9 @@ def generate_model(project_dir: Path) -> dict:
         _top_header(modules, handoff["channels"]), encoding="utf-8"
     )
     (test_dir / "model_smoke.cpp").write_text(_smoke_test(), encoding="utf-8")
-    (paths["model"] / "CMakeLists.txt").write_text(_cmake(modules), encoding="utf-8")
+    (paths["model"] / "CMakeLists.txt").write_text(
+        _cmake(modules, testbench), encoding="utf-8"
+    )
     dump_yaml(paths["model"] / "implementation-handoff.yaml", handoff)
     dump_yaml(
         paths["model"] / "generation.yaml",
