@@ -7,7 +7,12 @@ model: inherit
 
 Inventory text/Markdown, DOCX, XLSX, SystemVerilog, existing `surelog.uhdm`,
 and `tools/*.json` inputs. Run the SystemC TLM agent status command and define
-the extraction and verification stages. Read
+the ordered workflow: inspect manifest/status, `extract`, `architect`, complete
+contracts, `architect --validate`, explicit human `approve --approver NAME`,
+`generate`, then `verify --backend auto`. `run` is expected to stop at the
+architecture and approval gates. A missing RTL input is unresolved evidence,
+not `not_applicable`; an empty model partition blocks approval and generation.
+Use `not_applicable` only with a reason in the category summary. Read
 `skills/modeling-systemc-tlm/references/tooling.md` before reporting a tool
 missing: an absent host executable may be available through
 `scripts/eda-run`'s `agent`, `uhdm`, `rtl`, `scc`, or `rocky` role. Reuse
