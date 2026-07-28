@@ -72,7 +72,11 @@ scripts/systemc-tlm-agent extract PROJECT
 scripts/systemc-tlm-agent extract PROJECT --skip-tools
 ```
 
-当前证据提取支持 DOCX、XLSX 和轻量级 SystemVerilog 模块/端口发现。结构化 EDA 结果记录在 `facts/rtl.json` 和 `.systemc-agent/tools/` 下。CLI 目前不支持将外部基准测试 EDA 包导入 `evidence.jsonl`，也没有专门的 TXT/Markdown 证据注册命令。智能体可以直接读取这些文件，但当前 CLI 无法确定性地将此类观察结果转换为证据 ID。
+当前证据提取支持 DOCX、XLSX 和轻量级 SystemVerilog 模块/端口发现。结构化 EDA 结果记录在 `facts/rtl.json` 和 `.systemc-agent/tools/` 下。Surelog 的原生数据库保留为 `tools/surelog-work/slpp_all/surelog.uhdm`，不会再导出为仓库专用的固定 UHDM JSON。
+
+`eda-query` 只离线读取 Yosys/Verilator JSON；`eda-uhdm run DATABASE QUERY.py --output-dir OUTPUT -- ARGS...` 则在 UHDM 镜像中执行 Agent 编写的原生 Python API 查询，保存原始 stdout/stderr 和运行元数据。后者是探索信息，不直接生成证据 ID，必须回到有定位的 RTL/规格证据确认。详细接口见 `docs/agent-eda-query.md`。
+
+CLI 目前不支持将外部基准测试 EDA 包导入 `evidence.jsonl`，也没有专门的 TXT/Markdown 证据注册命令。智能体可以直接读取这些文件，但当前 CLI 无法确定性地将此类观察结果转换为证据 ID。
 
 #### `architect`
 

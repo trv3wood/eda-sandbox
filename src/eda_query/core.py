@@ -9,7 +9,7 @@ from typing import Any
 import jsonschema
 
 SCHEMA_VERSION = 1
-BACKENDS = {"uhdm", "yosys", "verilator"}
+BACKENDS = {"yosys", "verilator"}
 STATUSES = {"ok", "empty", "unsupported", "error"}
 
 
@@ -275,153 +275,6 @@ def _verilator(
     raise NotImplementedError(kind)
 
 
-def _module_matches(value: str, selector: str | None) -> bool:
-    if not selector:
-        return True
-    return value == selector or value.rsplit("@", 1)[-1] == selector
-
-
-def _uhdm(
-    data: dict[str, Any], kind: str, selectors: dict[str, str]
-) -> list[dict[str, Any]]:
-    objects = data.get("objects")
-    if not isinstance(objects, list):
-        raise ValueError("UHDM JSON has no objects list")
-    semantic_kind = {
-        "modules": "module",
-        "packages": "package",
-        "ports": "port",
-        "parameters": "parameter",
-        "types": "enum",
-        "enums": "enum",
-        "variables": "variable",
-        "processes": "process",
-        "assignments": "assignment",
-        "cases": "case",
-    }.get(kind)
-    if semantic_kind:
-        results = []
-        for index, item in enumerate(objects):
-            if not isinstance(item, dict) or item.get("kind") != semantic_kind:
-                continue
-            module = str(item.get("module", ""))
-            if not _module_matches(module, selectors.get("module")):
-                continue
-            if selectors.get("name") and item.get("name") != selectors["name"]:
-                continue
-            result = dict(item)
-            result["pointer"] = f"/objects/{index}"
-            result["source_locations"] = (
-                [f"{item['file']}:{item.get('line', 0)}:{item.get('column', 0)}"]
-                if item.get("file")
-                else []
-            )
-            if kind == "enums":
-                result["constants"] = [
-                    {
-                        "name": child.get("name"),
-                        "value": child.get("value"),
-                        "decompile": child.get("decompile"),
-                    }
-                    for child in objects
-                    if isinstance(child, dict)
-                    and child.get("kind") == "enum-constant"
-                    and child.get("parent_id") == item.get("id")
-                ]
-            results.append(result)
-        return results
-    if kind == "hierarchy":
-        results = []
-        for index, item in enumerate(objects):
-            if not isinstance(item, dict) or item.get("kind") != "module":
-                continue
-            parent_module = item.get("module", "")
-            if not parent_module or not _module_matches(
-                str(parent_module), selectors.get("module")
-            ):
-                continue
-            if item.get("parent_id") is not None and item.get("name"):
-                instance = str(item.get("name", "")).rsplit(".", 1)[-1]
-                results.append(
-                    {
-                        "parent": parent_module,
-                        "instance": instance,
-                        "child": item.get("definition"),
-                        "pointer": f"/objects/{index}",
-                        "source_locations": [
-                            f"{item['file']}:{item.get('line', 0)}:"
-                            f"{item.get('column', 0)}"
-                        ] if item.get("file") else [],
-                    }
-                )
-        return results
-    if kind == "fsm-candidates":
-        enums = {
-            item["id"]: item
-            for item in objects
-            if isinstance(item, dict) and item.get("kind") == "enum"
-        }
-        cases = [
-            item
-            for item in objects
-            if isinstance(item, dict) and item.get("kind") == "case"
-        ]
-        results = []
-        for index, item in enumerate(objects):
-            if not isinstance(item, dict) or item.get("kind") != "variable":
-                continue
-            if not _module_matches(str(item.get("module", "")), selectors.get("module")):
-                continue
-            enum = enums.get(item.get("typespec_id"))
-            if not enum or not str(item.get("name", "")).endswith(("_q", "_state")):
-                continue
-            constants = [
-                child.get("name")
-                for child in objects
-                if isinstance(child, dict)
-                and child.get("kind") == "enum-constant"
-                and child.get("parent_id") == enum.get("id")
-            ]
-            results.append(
-                {
-                    "module": item.get("module"),
-                    "state_variable": item.get("name"),
-                    "enum": enum.get("name"),
-                    "states": constants,
-                    "case_locations": sorted({
-                        f"{case['file']}:{case.get('line', 0)}:"
-                        f"{case.get('column', 0)}"
-                        for case in cases
-                        if case.get("module") == item.get("module")
-                        and case.get("file")
-                    }),
-                    "pointer": f"/objects/{index}",
-                    "source_locations": [
-                        f"{item['file']}:{item.get('line', 0)}:"
-                        f"{item.get('column', 0)}"
-                    ] if item.get("file") else [],
-                }
-            )
-        return results
-    if kind == "source-locations":
-        return [
-            {
-                "entity_kind": item.get("kind"),
-                "name": item.get("name"),
-                "module": item.get("module"),
-                "location": (
-                    f"{item['file']}:{item.get('line', 0)}:"
-                    f"{item.get('column', 0)}"
-                ),
-                "pointer": f"/objects/{index}",
-            }
-            for index, item in enumerate(objects)
-            if isinstance(item, dict) and item.get("file")
-            and _module_matches(str(item.get("module", "")), selectors.get("module"))
-        ]
-    raise NotImplementedError(kind)
-
-
 def _result(
     backend: str,
     kind: str,
@@ -469,8 +322,6 @@ def query_bundle(
             _yosys(data, kind, selectors)
             if backend == "yosys"
             else _verilator(data, kind, selectors)
-            if backend == "verilator"
-            else _uhdm(data, kind, selectors)
         )
     except NotImplementedError:
         return _result(
@@ -533,14 +384,6 @@ def catalog_bundle(bundle: Path) -> dict[str, Any]:
                 sorted(data.get("modules", {}))
                 if backend == "yosys"
                 else sorted(module["name"] for module, _ in _verilator_modules(data))
-                if backend == "verilator"
-                else sorted(
-                    item.get("name") or item.get("definition")
-                    for item in data.get("objects", [])
-                    if isinstance(item, dict)
-                    and item.get("kind") == "module"
-                    and item.get("parent_id") is None
-                )
             )
             entries.append({**source, "backend": backend, "modules": modules})
         except FileNotFoundError:

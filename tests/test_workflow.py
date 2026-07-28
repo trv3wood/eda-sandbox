@@ -53,6 +53,42 @@ class WorkflowTest(unittest.TestCase):
         )
         self.assertNotIn(str(testbench), commands[2][2])
 
+    @patch("systemc_tlm_agent.extractors._run_tool")
+    def test_eda_tools_preserve_native_uhdm_database(self, run_tool) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            tools = project / "tools"
+            rtl = project / "design.sv"
+            rtl.write_text("module top; endmodule\n", encoding="utf-8")
+
+            def execute(command, cwd, log):
+                if command[0] == "surelog":
+                    database = cwd / "slpp_all/surelog.uhdm"
+                    database.parent.mkdir(parents=True)
+                    database.write_bytes(b"native uhdm")
+                return {"status": "passed", "returncode": 0}
+
+            run_tool.side_effect = execute
+            result = run_eda_tools(
+                project_dir=project,
+                rtl_files=[rtl],
+                testbench_files=[],
+                top="top",
+                tools_dir=tools,
+            )
+
+            self.assertEqual(result["uhdm"]["status"], "passed")
+            self.assertEqual(result["uhdm"]["database_size"], 11)
+            self.assertTrue(
+                Path(result["uhdm"]["database"]).is_file()
+            )
+            commands = [call.args[0] for call in run_tool.call_args_list]
+            self.assertEqual(
+                [command[0] for command in commands],
+                ["surelog", "verilator", "yosys"],
+            )
+            self.assertFalse((tools / "uhdm.json").exists())
+
     def test_extract_allows_missing_rtl(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             project = Path(temporary)

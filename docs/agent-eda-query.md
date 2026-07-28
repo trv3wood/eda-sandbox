@@ -1,48 +1,23 @@
-# Agent-friendly EDA query layer
+# Agent-friendly EDA access
 
-`eda-query` is a small, offline read layer over EDA artifacts that were already
-produced by the extraction/container workflow. It gives an agent stable
-semantic queries without allowing the query process to launch tools, access the
-network, or evaluate arbitrary expressions.
+The repository exposes two deliberately different paths:
 
-## Boundary
+- `eda-query` reads existing Yosys and Verilator JSON offline and returns a
+  stable `QueryResult`.
+- `eda-uhdm run` executes an agent-written Python script against an existing
+  Surelog UHDM database using the official `uhdm` binding.
 
-The offline reader consumes:
+Neither path replaces RTL or specifications as the design authority.
 
-- `BUNDLE/tools/uhdm.json`
+## Offline Yosys/Verilator queries
+
+`eda-query` consumes:
+
 - `BUNDLE/tools/yosys.json`
 - `BUNDLE/tools/verilator.json`
 
-Surelog logs remain ordinary text evidence. UHDM, Yosys, and Verilator results
-are reported independently, so a missing view is visible rather than silently
-reconstructed from another backend.
-
-The layer does not replace RTL or specifications as design authority. It makes
-elaborated hierarchy, ports, cells, signals, AST nodes, and source locations
-cheap to inspect and cite.
-
-`eda-uhdm` is the live companion in the dedicated UHDM image. It restores the
-Surelog database through the official Python binding:
-
-```bash
-eda-uhdm export tools/surelog-work/slpp_all/surelog.uhdm \
-  --output tools/uhdm.json --source-root PROJECT
-eda-uhdm query tools/surelog-work/slpp_all/surelog.uhdm \
-  --kind ports --module dma
-eda-uhdm serve tools/surelog-work/slpp_all/surelog.uhdm
-```
-
-`serve` restores once and accepts one JSON request per input line, which avoids
-paying deserialization cost on every agent-loop query. `export` remains the
-deterministic, hashable cache and benchmark evidence format.
-
-UHDM v1.84's SWIG wrapper can restore a database but does not expose
-`Serializer.AllObjects()`. The `eda-uhdm` image therefore also contains the
-tracked, reproducibly built `uhdm-export` C++ adapter. `export`, `query`, and
-`serve` use it transparently for snapshot traversal when that Python method is
-absent; temporary snapshots are removed after loading.
-
-## CLI
+It never launches an EDA process, evaluates arbitrary expressions, or accesses
+the network.
 
 ```bash
 eda-query catalog BUNDLE
@@ -64,76 +39,116 @@ eda-query raw BUNDLE \
   --pointer /modules/TopModule/cells
 ```
 
-Semantic kinds shared by both backends are `modules`, `ports`, `hierarchy`, and
-`source-locations`. Yosys additionally supports `cells` and `signals`;
+Semantic kinds shared by both backends are `modules`, `ports`, `hierarchy`,
+and `source-locations`. Yosys additionally supports `cells` and `signals`;
 Verilator supports `signals` and `statements`. Unsupported combinations return
 `status: unsupported`. Raw access accepts only RFC 6901-style JSON Pointer.
 
-UHDM is the semantic backend for larger SystemVerilog designs. It supports
-`modules`, `packages`, `ports`, `parameters`, `hierarchy`, `types`, `enums`,
-`variables`, `processes`, `assignments`, `cases`, `fsm-candidates`, and
-`source-locations`. An FSM result is deliberately a candidate: contracts must
-still confirm transitions and exceptional behavior against RTL and prose.
+Every `QueryResult` contains the artifact path and SHA-256, stable
+content-derived `query_id`, selectors, pagination state, warnings, and item
+locators. The schema is `src/eda_query/query-result.schema.json`.
 
-Projects with packages and generated dependencies should provide an explicit
-compile manifest:
+## Direct UHDM Python access
 
-```bash
-systemc-tlm-agent init PROJECT --name dma --top dma \
-  --rtl rtl/dma.sv \
-  --eda-source rtl/top_pkg.sv \
-  --eda-source rtl/tlul_pkg.sv \
-  --eda-source rtl/dma_pkg.sv \
-  --eda-source rtl/dma.sv \
-  --eda-include-dir rtl \
-  --eda-define SYNTHESIS
+Surelog extraction preserves the native database at:
+
+```text
+PROJECT/.systemc-agent/tools/surelog-work/slpp_all/surelog.uhdm
 ```
 
-The source order is preserved. The `eda-uhdm-produce` command invokes Surelog
-with full UHDM elaboration and uses the Python binding to create
-`tools/uhdm.json`. `eda-rtl-produce` independently runs Verilator and Yosys.
-`systemc-tlm-agent tools finalize PROJECT` merges their status records.
-Dependency resolution and downloads must happen before extraction.
+`eda-uhdm` does not export this database to a repository-specific object model
+and does not implement fixed `query` or `serve` commands. An agent writes the
+smallest Python script needed for the current question and imports `uhdm`
+directly:
 
-Every `QueryResult` contains the exact artifact path and SHA-256, stable
-content-derived `query_id`, selectors, pagination state, warnings, and item
-locators. The packaged schema is
-`src/eda_query/query-result.schema.json`. `--output` uses an atomic replacement
-so an interrupted query does not leave a partial result.
+```python
+import os
+import uhdm
+
+serializer = uhdm.Serializer()
+roots = serializer.Restore(os.environ["UHDM_DATABASE"])
+if not roots:
+    raise RuntimeError("UHDM database contains no design root")
+design = roots[0]
+iterator = uhdm.vpi_iterate(uhdm.uhdmtopModules, design)
+while iterator:
+    module = uhdm.vpi_scan(iterator)
+    if module is None:
+        break
+    print(uhdm.vpi_get_str(uhdm.vpiName, module))
+```
+
+Run it in the UHDM image. Both the script and output directory must be below
+the directory mounted by `--work`:
+
+```bash
+scripts/eda-run --work WORK uhdm \
+  eda-uhdm run \
+  /workspace/PROJECT/.systemc-agent/tools/surelog-work/slpp_all/surelog.uhdm \
+  /workspace/audits/query.py \
+  --output-dir /workspace/audits/query-output -- TopModule
+```
+
+The runner:
+
+- sets `UHDM_DATABASE` to an absolute database path;
+- uses the image's Python interpreter and official binding;
+- enforces a timeout and a combined stdout/stderr byte limit;
+- preserves raw `stdout.log` and `stderr.log` without transforming objects;
+- records database/script/stream hashes, binding information, limits, timing,
+  and return code in `run.json`.
+
+Defaults are 120 seconds and 4 MiB. Override them with `--timeout` and
+`--max-output-bytes`.
+
+The copyable starter is
+`skills/modeling-systemc-tlm/assets/uhdm_query_template.py`; the API usage
+guide is `skills/modeling-systemc-tlm/references/uhdm-python.md`. Scripts
+should inspect both `uhdmtopModules` (elaborated instances) and
+`uhdmallModules` (definitions) when the question spans connectivity and
+source-level behavior.
+
+Raw UHDM output is exploration, not benchmark evidence. It may locate a
+process, enum, assignment, or source line, but the agent must confirm the
+claim against extractor-owned RTL/specification evidence. This avoids making
+arbitrary script output a self-certifying evidence source.
+
+## Production and benchmark sharing
+
+Projects with packages and generated dependencies should provide source order,
+include directories, and defines in `eda_compile`. `eda-uhdm-produce` invokes
+Surelog with full elaboration and leaves `surelog.uhdm` intact;
+`eda-rtl-produce` independently runs Verilator and Yosys.
+
+The benchmark stages the complete `.systemc-agent/tools` directory as neutral
+EDA input and removes write bits from every staged artifact. Consequently
+baseline and skill arms receive byte-identical `surelog.uhdm`, Yosys JSON,
+Verilator JSON, logs, and producer records. A selective sandbox mounts this
+tree read-only; direct host mode can only provide accidental-write protection,
+because the same host user can change file modes. The skill's advantage is its
+UHDM API guidance and modeling workflow, not a different precomputed semantic
+export.
 
 ## Evidence bridge
 
-A query is read-only until an agent explicitly promotes its interpretation:
+Only successful, non-empty Yosys/Verilator `QueryResult` files can be promoted:
 
 ```bash
 systemc-tlm-agent evidence record PROJECT \
   --result ports.json \
   --statement "TopModule exposes the elaborated request and response ports."
-
-systemc-tlm-agent evidence list PROJECT
 ```
 
-Recording revalidates the QueryResult ID and current source SHA-256. Successful
-records are appended idempotently to
-`.systemc-agent/query-evidence.jsonl`; extractor-owned
-`.systemc-agent/evidence.jsonl` is not rewritten. Contract validation accepts
-IDs from both stores. Both stores are included in the approval payload, so
-adding or changing query evidence invalidates an earlier architecture approval.
+Recording revalidates the result ID and source SHA-256. Records are appended
+idempotently to `.systemc-agent/query-evidence.jsonl` and participate in the
+approval hash. UHDM runner logs are intentionally rejected by this bridge.
 
-## Python interface
+## Limits
 
-```python
-from pathlib import Path
-from eda_query import query_bundle, validate_result
-
-result = query_bundle(
-    Path(bundle),
-    backend="yosys",
-    kind="hierarchy",
-    selectors={"module": "TopModule"},
-)
-validate_result(result, verify_source=True)
-```
-
-The offline `eda_query` package never invokes subprocesses. Live database
-restore is isolated in `eda-uhdm`; producer commands own tool execution.
+- UHDM relations vary by object class and binding release; scripts must test
+  optional constants with `getattr` and report unsupported views explicitly.
+- Do not perform an unbounded whole-database recursive dump. Select a
+  top/module and cap each relation.
+- Parser failures and missing relations are limitations, not negative design
+  evidence.
+- Large image pulls/builds remain user-operated.

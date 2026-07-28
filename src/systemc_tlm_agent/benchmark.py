@@ -504,6 +504,9 @@ def _sandbox_case(
 def _stage_neutral_eda_evidence(source: Path, destination: Path) -> Path:
     """Copy parser-native outputs without treatment facts or contracts."""
     if destination.exists():
+        for path in destination.rglob("*"):
+            if path.is_file():
+                path.chmod(path.stat().st_mode & ~0o222)
         return destination
     destination.mkdir(parents=True)
     tools = source / ".systemc-agent" / "tools"
@@ -529,6 +532,9 @@ def _stage_neutral_eda_evidence(source: Path, destination: Path) -> Path:
                 for name, value in rtl_facts.get("tools", {}).items()
             },
         })
+    for path in destination.rglob("*"):
+        if path.is_file():
+            path.chmod(path.stat().st_mode & ~0o222)
     return destination
 
 

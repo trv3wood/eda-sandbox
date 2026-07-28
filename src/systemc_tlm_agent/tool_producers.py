@@ -102,20 +102,21 @@ def produce_uhdm(project: Path) -> dict[str, Any]:
     surelog = _run(command, work, paths["tools"] / "surelog.log")
     database = work / "slpp_all" / "surelog.uhdm"
     if surelog["status"] == "passed" and database.is_file():
-        uhdm = _run(
-            [
-                "eda-uhdm", "export", str(database),
-                "--output", str(paths["tools"] / "uhdm.json"),
-                "--source-root", str(project),
-            ],
-            project,
-            paths["tools"] / "uhdm-export.log",
-        )
+        uhdm = {
+            "status": "passed",
+            "database": str(database),
+            "database_sha256": file_digest(database),
+            "database_size": database.stat().st_size,
+        }
     else:
         uhdm = {
             "status": "skipped",
-            "reason": "Surelog did not complete without errors",
-            "source": str(database),
+            "reason": (
+                "Surelog did not produce a UHDM database"
+                if surelog["status"] == "passed"
+                else "Surelog failed"
+            ),
+            "database": str(database),
         }
     result = _producer_record(
         "uhdm",

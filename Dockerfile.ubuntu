@@ -53,21 +53,10 @@ RUN cmake -S /tmp/uhdm-src -B /tmp/uhdm-build -G Ninja \
     cmake --build /tmp/uhdm-build --parallel && \
     cmake --install /tmp/uhdm-build
 RUN /opt/conda/envs/uhdm/bin/python -c "import uhdm; print(uhdm.Serializer)"
-COPY tools/uhdm_export/main.cpp /tmp/uhdm-export.cpp
-RUN mkdir -p /opt/eda-tools && \
-    g++ -std=c++17 -O2 \
-        -I/opt/conda/envs/uhdm/include \
-        /tmp/uhdm-export.cpp \
-        -L/opt/conda/envs/uhdm/lib -luhdm \
-        -Wl,-rpath,/opt/conda/envs/uhdm/lib \
-        -o /opt/eda-tools/uhdm-export && \
-    LD_LIBRARY_PATH=/opt/conda/envs/uhdm/lib \
-        /opt/eda-tools/uhdm-export --version
 
 FROM ubuntu-base AS eda-uhdm
 ARG IMAGE_REVISION=unknown
 COPY --from=uhdm-python-builder /opt/conda/envs/uhdm /opt/conda/envs/uhdm
-COPY --from=uhdm-python-builder /opt/eda-tools/uhdm-export /usr/local/bin/uhdm-export
 COPY pyproject.toml /opt/systemc-agent/
 COPY src /opt/systemc-agent/src
 COPY scripts/regress.sh /opt/systemc-agent/scripts/regress.sh
@@ -77,7 +66,7 @@ ENV MAMBA_ROOT_PREFIX=/opt/conda \
     LD_LIBRARY_PATH=/opt/conda/envs/uhdm/lib \
     IMAGE_REVISION=${IMAGE_REVISION}
 RUN python3 -c "import uhdm; print(uhdm.Serializer)"
-RUN uhdm-export --version
+RUN eda-uhdm version
 CMD ["/bin/bash"]
 
 # Verilator/Yosys are independent from the semantic UHDM producer.

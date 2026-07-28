@@ -18,7 +18,7 @@ class EdaQueryTest(unittest.TestCase):
         catalog = catalog_bundle(self.bundle)
         self.assertEqual(
             [item["backend"] for item in catalog["backends"]],
-            ["uhdm", "verilator", "yosys"],
+            ["verilator", "yosys"],
         )
         yosys = query_bundle(
             self.bundle,
@@ -44,25 +44,6 @@ class EdaQueryTest(unittest.TestCase):
             selectors={"module": "packet_engine_top"},
         )
         self.assertEqual(hierarchy["items"][0]["child"], "child")
-
-        enums = query_bundle(
-            self.bundle,
-            backend="uhdm",
-            kind="enums",
-            selectors={"module": "packet_engine_top"},
-        )
-        self.assertEqual(
-            [item["name"] for item in enums["items"][0]["constants"]],
-            ["Idle", "Run"],
-        )
-        fsm = query_bundle(
-            self.bundle,
-            backend="uhdm",
-            kind="fsm-candidates",
-            selectors={"module": "packet_engine_top"},
-        )
-        self.assertEqual(fsm["items"][0]["state_variable"], "state_q")
-        self.assertEqual(fsm["items"][0]["states"], ["Idle", "Run"])
 
     def test_pagination_unsupported_and_raw_pointer(self) -> None:
         first = query_bundle(

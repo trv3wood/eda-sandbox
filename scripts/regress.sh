@@ -39,9 +39,8 @@ case "${profile}" in
     systemc-tlm-agent --help >/dev/null
     ;;
   uhdm)
-    require_tools python3 surelog uhdm-export eda-uhdm eda-uhdm-produce
+    require_tools python3 surelog eda-uhdm eda-uhdm-produce
     python3 -c 'import uhdm; print("  UHDM:    Python binding available")'
-    uhdm-export --version
     eda-uhdm version
     probe_dir="$(mktemp -d)"
     trap 'rm -rf "${probe_dir}"' EXIT
@@ -50,14 +49,25 @@ case "${profile}" in
       '  assign ready_o = clk_i;' \
       'endmodule' \
       >"${probe_dir}/top.sv"
+    printf '%s\n' \
+      'import os' \
+      'import uhdm' \
+      'serializer = uhdm.Serializer()' \
+      'roots = serializer.Restore(os.environ["UHDM_DATABASE"])' \
+      'assert roots' \
+      'design = roots[0]' \
+      'iterator = uhdm.vpi_iterate(uhdm.uhdmtopModules, design)' \
+      'module = uhdm.vpi_scan(iterator)' \
+      'assert module is not None' \
+      'name = uhdm.vpi_get_str(uhdm.vpiName, module)' \
+      'assert name and name.endswith("top"), name' \
+      'print(name)' \
+      >"${probe_dir}/query.py"
     (
       cd "${probe_dir}"
       surelog top.sv -top top -parse -elabuhdm -d uhdm >/dev/null
-      eda-uhdm export slpp_all/surelog.uhdm --output uhdm.json
-      eda-uhdm query slpp_all/surelog.uhdm \
-        --kind modules --module work@top |
-        python3 -c \
-          'import json,sys; assert json.load(sys.stdin)["status"] == "ok"'
+      eda-uhdm run slpp_all/surelog.uhdm query.py \
+        --output-dir query-output
     )
     ;;
   rtl)
@@ -90,12 +100,11 @@ case "${profile}" in
     ;;
   enterprise)
     require_tools \
-      bash cmake ninja git python3 surelog uhdm-export verilator yosys
+      bash cmake ninja git python3 surelog verilator yosys
     printf '  CMake:     %s\n' "$(cmake --version | head -n 1)"
     printf '  Ninja:     %s\n' "$(ninja --version)"
     printf '  Verilator: %s\n' "$(verilator --version)"
     printf '  Yosys:     %s\n' "$(yosys -V)"
-    uhdm-export --version
     probe_dir="$(mktemp -d)"
     trap 'rm -rf "${probe_dir}"' EXIT
     printf '%s\n' \
@@ -106,9 +115,7 @@ case "${profile}" in
     (
       cd "${probe_dir}"
       surelog top.sv -top top -parse -elabuhdm -d uhdm >/dev/null
-      uhdm-export slpp_all/surelog.uhdm uhdm.json
-      python3 -c \
-        'import json; data=json.load(open("uhdm.json")); assert data["objects"]'
+      test -s slpp_all/surelog.uhdm
     )
     ;;
   *)

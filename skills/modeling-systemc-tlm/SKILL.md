@@ -11,7 +11,7 @@ Use the deterministic CLI for artifact production. Use agent reasoning to interp
 
 1. Read `references/workflow.md`, then inspect the project manifest and current status.
 2. Run `scripts/systemc-tlm-agent extract PROJECT`.
-3. Assign evidence IDs to claims. Use Surelog/UHDM, Verilator, and Yosys outputs as supporting structural evidence, not as replacements for the Spec or RTL. For prebuilt JSON views, use the offline query recipes below and explicitly record only the claims used by a contract.
+3. Assign evidence IDs to claims. Use Surelog/UHDM, Verilator, and Yosys outputs as supporting structural evidence, not as replacements for the Spec or RTL. Use the offline JSON query recipes below for Yosys and Verilator. Use `references/uhdm-python.md` for an existing UHDM database, then confirm discoveries against source-located Spec or RTL evidence.
 4. Run `scripts/systemc-tlm-agent architect PROJECT`.
 5. Complete all eight contract categories according to `references/contracts.md`. Record contradictions in `contracts/conflicts.yaml`.
 6. Stop if any category is unresolved or any conflict is open. Ask for a decision with the competing evidence IDs.
@@ -42,18 +42,15 @@ An absent host executable is not a tool failure until the corresponding
 `scripts/eda-run` role has also been checked. Reuse an existing UHDM database
 or JSON bundle before regenerating it.
 
-## Prebuilt EDA Query Recipes
+## EDA Query Recipes
 
-When an extraction or benchmark bundle contains `tools/uhdm.json`,
-`tools/yosys.json`, or `tools/verilator.json`, inspect it through `eda-query`;
-do not fall back to regular expressions merely because the live parser
-executable is absent. Prefer UHDM for types, enums, processes, cases, and FSM
-candidates; use Verilator and Yosys as independent structural views.
+When an extraction or benchmark bundle contains `tools/yosys.json` or
+`tools/verilator.json`, inspect it through `eda-query`; do not fall back to
+regular expressions merely because a live parser executable is absent.
+Yosys and Verilator remain independent structural views.
 
 ```bash
 eda-query catalog BUNDLE
-eda-query query BUNDLE --backend uhdm --kind enums --module TOP
-eda-query query BUNDLE --backend uhdm --kind fsm-candidates --module TOP
 eda-query query BUNDLE --backend yosys --kind hierarchy --module TOP
 eda-query query BUNDLE --backend yosys --kind ports --module TOP
 eda-query query BUNDLE --backend verilator --kind statements --module TOP
@@ -70,3 +67,22 @@ systemc-tlm-agent evidence record PROJECT \
 Treat `empty`, `unsupported`, warnings, and missing backend artifacts as
 limitations to report. The query layer never launches an EDA process; use the
 normal extraction workflow when artifacts need to be generated.
+
+For `tools/surelog-work/slpp_all/surelog.uhdm`, write a small Python query
+against the official `uhdm` binding and execute it with the thin runner:
+
+```bash
+mkdir -p WORK/audits/uhdm-query
+cp skills/modeling-systemc-tlm/assets/uhdm_query_template.py \
+  WORK/audits/uhdm-query/query.py
+scripts/eda-run --work WORK uhdm \
+  eda-uhdm run \
+  /workspace/PROJECT/.systemc-agent/tools/surelog-work/slpp_all/surelog.uhdm \
+  /workspace/audits/uhdm-query/query.py \
+  --output-dir /workspace/audits/uhdm-query/output -- TOP
+```
+
+The runner preserves raw stdout/stderr and provenance; it does not define a
+query language or reinterpret UHDM objects. UHDM output is exploratory and
+must not be passed to `evidence record`. Use its source locations to return to
+the RTL or specification and cite those existing evidence IDs in contracts.

@@ -13,3 +13,6 @@ missing: an absent host executable may be available through
 `scripts/eda-run`'s `agent`, `uhdm`, `rtl`, `scc`, or `rocky` role. Reuse
 existing databases and bundles before regenerating them. Do not decide design
 behavior, launch a large image build/download, or bypass architecture approval.
+For native database exploration, plan a focused script using
+`skills/modeling-systemc-tlm/references/uhdm-python.md`; do not request a fixed
+UHDM export.
