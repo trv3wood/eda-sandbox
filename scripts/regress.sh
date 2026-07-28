@@ -35,7 +35,7 @@ printf '  Python:  %s\n' "$(python3 --version 2>&1)"
 
 case "${profile}" in
   agent)
-    require_tools python3 systemc-tlm-agent benchmark-systemc-tlm eda-query
+    require_tools python3 systemc-tlm-agent eda-query
     systemc-tlm-agent --help >/dev/null
     ;;
   uhdm)

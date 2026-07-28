@@ -2,7 +2,7 @@
 
 Ubuntu 24.04 工具链按职责拆成四个独立镜像：
 
-- `eda-agent`：工作流、benchmark 和离线 JSON 查询；不含 EDA 编译器。
+- `eda-agent`：工作流和离线 JSON 查询；不含 EDA 编译器。
 - `eda-uhdm`：Surelog 和 UHDM Python binding，生成原生数据库并运行
   Agent 编写的直接 Python 查询。
 - `eda-rtl`：Verilator 和 Yosys。
@@ -87,11 +87,9 @@ BuildKit/GHA cache，并强制单镜像小于 2 GiB（`eda-agent` 小于 500 MiB
 
 这是一个容器化的开源工具链冒烟测试环境，而非虚拟机。它不模拟宿主机内核、CentOS 7 用户空间、网络挂载或许可证服务器。最终的 CentOS 7 兼容性检查应使用真实的传统环境。
 
-## SystemC TLM 技能基准测试
+## SystemC TLM 建模 CLI
 
-离线安全的 A/B 基准测试规划器、架构门控、评分聚合和报告工作流文档请参见
-[`docs/systemc-tlm-benchmark.md`](docs/systemc-tlm-benchmark.md)。
-两个命令行接口的职责、命令、产物和当前限制文档请参见
+建模命令的职责、命令、产物和当前限制文档请参见
 [`docs/cli-reference.md`](docs/cli-reference.md)。
 Agent 直接访问 UHDM Python API 与离线 Yosys/Verilator 查询的边界见
 [`docs/agent-eda-query.md`](docs/agent-eda-query.md)。

@@ -17,7 +17,6 @@ dependencies = [
 
 [project.scripts]
 systemc-tlm-agent = "systemc_tlm_agent.cli:main"
-benchmark-systemc-tlm = "systemc_tlm_agent.benchmark_cli:main"
 eda-query = "eda_query.cli:main"
 eda-uhdm = "eda_query.uhdm_runtime:main"
 eda-uhdm-produce = "systemc_tlm_agent.tool_producers:uhdm_main"

@@ -108,26 +108,17 @@ should inspect both `uhdmtopModules` (elaborated instances) and
 `uhdmallModules` (definitions) when the question spans connectivity and
 source-level behavior.
 
-Raw UHDM output is exploration, not benchmark evidence. It may locate a
+Raw UHDM output is exploration, not extractor-owned evidence. It may locate a
 process, enum, assignment, or source line, but the agent must confirm the
 claim against extractor-owned RTL/specification evidence. This avoids making
 arbitrary script output a self-certifying evidence source.
 
-## Production and benchmark sharing
+## Production outputs
 
 Projects with packages and generated dependencies should provide source order,
 include directories, and defines in `eda_compile`. `eda-uhdm-produce` invokes
 Surelog with full elaboration and leaves `surelog.uhdm` intact;
 `eda-rtl-produce` independently runs Verilator and Yosys.
-
-The benchmark stages the complete `.systemc-agent/tools` directory as neutral
-EDA input and removes write bits from every staged artifact. Consequently
-baseline and skill arms receive byte-identical `surelog.uhdm`, Yosys JSON,
-Verilator JSON, logs, and producer records. A selective sandbox mounts this
-tree read-only; direct host mode can only provide accidental-write protection,
-because the same host user can change file modes. The skill's advantage is its
-UHDM API guidance and modeling workflow, not a different precomputed semantic
-export.
 
 ## Evidence bridge
 

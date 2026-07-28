@@ -8,7 +8,7 @@ Usage:
   scripts/eda-run [OPTIONS] ROLE --shell
 
 Roles:
-  agent       Workflow, benchmark, and offline queries
+  agent       Workflow and offline queries
   uhdm        Surelog and direct UHDM Python queries
   rtl         Verilator and Yosys
   scc         SystemC/SCC compilation and verification
