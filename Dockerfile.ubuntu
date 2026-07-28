@@ -3,7 +3,7 @@ FROM ubuntu:24.04 AS ubuntu-base
 ENV DEBIAN_FRONTEND=noninteractive TZ=UTC
 WORKDIR /workspace
 
-# Lightweight workflow/benchmark image. It intentionally contains no EDA or
+# Lightweight workflow image. It intentionally contains no EDA or
 # SystemC compiler toolchain.
 FROM ubuntu-base AS agent
 ARG IMAGE_REVISION=unknown

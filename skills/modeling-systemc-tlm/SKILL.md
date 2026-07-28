@@ -44,7 +44,7 @@ or JSON bundle before regenerating it.
 
 ## EDA Query Recipes
 
-When an extraction or benchmark bundle contains `tools/yosys.json` or
+When an extraction bundle contains `tools/yosys.json` or
 `tools/verilator.json`, inspect it through `eda-query`; do not fall back to
 regular expressions merely because a live parser executable is absent.
 Yosys and Verilator remain independent structural views.
