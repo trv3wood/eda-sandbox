@@ -277,6 +277,28 @@ int sc_main(int, char**) {
 """
 
 
+def _gitignore() -> str:
+    """Return the generated model's source-only packaging policy."""
+    return """# CMake, Ninja, and other compiled outputs
+/build/
+/build-*/
+/cmake-build-*/
+/CMakeFiles/
+/CMakeCache.txt
+/compile_commands.json
+/.ninja_deps
+/.ninja_log
+
+# Runtime and tool logs
+*.log
+*.log.*
+
+# Local interpreter/tool caches
+__pycache__/
+*.py[cod]
+"""
+
+
 def generate_model(project_dir: Path) -> dict:
     """Generate a scaffold only when the exact contract set is approved."""
     valid, reason = approval_is_valid(project_dir)
@@ -311,6 +333,7 @@ def generate_model(project_dir: Path) -> dict:
     (paths["model"] / "CMakeLists.txt").write_text(
         _cmake(modules, testbench), encoding="utf-8"
     )
+    (paths["model"] / ".gitignore").write_text(_gitignore(), encoding="utf-8")
     dump_yaml(paths["model"] / "implementation-handoff.yaml", handoff)
     dump_yaml(
         paths["model"] / "generation.yaml",
