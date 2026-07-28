@@ -231,6 +231,7 @@ class WorkflowTest(unittest.TestCase):
             self.assertEqual(generated["module_count"], 1)
             self.assertTrue((paths["model"] / "CMakeLists.txt").exists())
             self.assertTrue((paths["model"] / "implementation-handoff.yaml").exists())
+            self.assertIn("/build/", (paths["model"] / ".gitignore").read_text())
             self.assertIn(
                 "add_test(NAME contract::packet_contract",
                 (paths["model"] / "CMakeLists.txt").read_text(),
