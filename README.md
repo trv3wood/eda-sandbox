@@ -3,7 +3,8 @@
 Ubuntu 24.04 工具链按职责拆成四个独立镜像：
 
 - `eda-agent`：工作流、benchmark 和离线 JSON 查询；不含 EDA 编译器。
-- `eda-uhdm`：Surelog 和 UHDM Python binding，负责语义数据库生成与查询。
+- `eda-uhdm`：Surelog 和 UHDM Python binding，生成原生数据库并运行
+  Agent 编写的直接 Python 查询。
 - `eda-rtl`：Verilator 和 Yosys。
 - `eda-scc`：SystemC/SCC 编译与验证；Conan 缓存只存在于 builder。
 - `eda-enterprise`：Rocky Linux 8，用于 RHEL 系列兼容性检查。
@@ -44,7 +45,9 @@ podman-compose build eda-rtl
 ```bash
 scripts/eda-run rtl verilator --version
 scripts/eda-run uhdm surelog --version
-scripts/eda-run uhdm eda-uhdm query design.uhdm --kind modules
+scripts/eda-run --work "$PWD" uhdm \
+  eda-uhdm run /workspace/design.uhdm /workspace/query.py \
+  --output-dir /workspace/query-output
 scripts/eda-run scc --shell
 scripts/eda-run rocky --shell
 ```
@@ -90,3 +93,5 @@ BuildKit/GHA cache，并强制单镜像小于 2 GiB（`eda-agent` 小于 500 MiB
 [`docs/systemc-tlm-benchmark.md`](docs/systemc-tlm-benchmark.md)。
 两个命令行接口的职责、命令、产物和当前限制文档请参见
 [`docs/cli-reference.md`](docs/cli-reference.md)。
+Agent 直接访问 UHDM Python API 与离线 Yosys/Verilator 查询的边界见
+[`docs/agent-eda-query.md`](docs/agent-eda-query.md)。

@@ -280,6 +280,9 @@ class BenchmarkTest(unittest.TestCase):
             for path in (tools, facts, contracts):
                 path.mkdir(parents=True)
             (tools / "yosys.json").write_text("{}\n", encoding="utf-8")
+            database = tools / "surelog-work/slpp_all/surelog.uhdm"
+            database.parent.mkdir(parents=True)
+            database.write_bytes(b"shared native database")
             dump_json(facts / "rtl.json", {
                 "target_top": "TopModule",
                 "reference_top": "RefModule",
@@ -298,6 +301,16 @@ class BenchmarkTest(unittest.TestCase):
             run_dir = Path(result["run_directories"][0])
             bundle = run_dir / "shared-eda-evidence"
             self.assertTrue((bundle / "tools/yosys.json").is_file())
+            self.assertEqual(
+                (bundle / "tools/surelog-work/slpp_all/surelog.uhdm").read_bytes(),
+                b"shared native database",
+            )
+            self.assertEqual(
+                (
+                    bundle / "tools/surelog-work/slpp_all/surelog.uhdm"
+                ).stat().st_mode & 0o222,
+                0,
+            )
             self.assertTrue((bundle / "eda-status.json").is_file())
             self.assertFalse((bundle / "facts").exists())
             self.assertFalse((bundle / "contracts").exists())

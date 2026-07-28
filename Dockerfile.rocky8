@@ -39,15 +39,6 @@ RUN curl -fsSL \
     micromamba clean --all --yes && \
     rm -f /tmp/rocky8-environment.yml
 
-COPY tools/uhdm_export/main.cpp /tmp/uhdm-export.cpp
-RUN g++ -std=c++17 -O2 \
-        -I/opt/conda/envs/eda/include \
-        /tmp/uhdm-export.cpp \
-        -L/opt/conda/envs/eda/lib -luhdm \
-        -Wl,-rpath,/opt/conda/envs/eda/lib \
-        -o /usr/local/bin/uhdm-export && \
-    uhdm-export --version
-
 COPY scripts/regress.sh /opt/eda-sandbox/scripts/regress.sh
 
 WORKDIR /workspace

@@ -33,6 +33,11 @@ scripts/benchmark-systemc-tlm extract --work ~/Work/eda-sandbox \
 记录。容器之间仅共享 benchmark work tree，不在容器内启动 Podman。`--image`
 仍作为兼容选项，可把同一旧镜像用于所有角色。
 
+UHDM producer 保留原生 `surelog.uhdm`，不生成固定语义 JSON。运行阶段把整个
+中立工具目录复制到两个实验组，并移除文件写权限；因此两组获得逐字节相同的
+UHDM 数据库、Yosys/Verilator JSON、日志和 producer 记录。直接宿主机模式下，
+同一宿主用户仍可主动恢复写权限，这一限制会记录在试验解释中。
+
 ## 运行与架构门控
 
 不带 `--execute` 时，`run` 仅创建可检查的计划：
@@ -90,7 +95,7 @@ scripts/benchmark-systemc-tlm report --work ~/Work/eda-sandbox
 
 已验证的框架属性：
 
-- 两个实验组使用相同的模型和逐字节相同的中立 Surelog、Verilator、Yosys 和状态产物。
+- 两个实验组使用相同的模型和逐字节相同的中立 Surelog 原生数据库、Verilator、Yosys 和状态产物。
 - 基线组启动时没有自定义技能，仅有内置的 `claude`、`Explore`、`general-purpose` 和 `Plan` 智能体。其工具集中不包含 `Skill`、`Agent` 或 `Task`，其 JSONL 未显示任何实验组调用。
 - 技能组收到了仓库技能和角色适配器。它生成了规范的八类架构 YAML，注册了 36 条证据记录，没有未知的合约证据 ID，通过了 `architect --validate`，并在人类批准门控处停止。
 - 基线组生成了一个有用的独立架构，但使用了不同的八类模式，并在报告 JALR 歧义时选择了 RTL 解释而未经人类裁决。其最终的 `ARCHITECT_COMPLETE` 状态与 `conflicts.yaml` 中未解决的条目不一致。

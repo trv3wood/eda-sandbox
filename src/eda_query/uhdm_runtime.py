@@ -3,191 +3,17 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import shutil
+import os
+import selectors
 import subprocess
 import sys
-import tempfile
+import time
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Sequence
 
-from .core import _result, _uhdm
-
-
-def _call(obj: Any, name: str, default: Any = None) -> Any:
-    method = getattr(obj, name, None)
-    if not callable(method):
-        return default
-    try:
-        return method()
-    except (RuntimeError, TypeError):
-        return default
-
-
-def _class_name(obj: Any) -> str:
-    return type(obj).__name__.lower().removeprefix("uhdm.")
-
-
-def _kind(obj: Any) -> str | None:
-    name = _class_name(obj)
-    if "module_inst" in name:
-        return "module"
-    if name == "package":
-        return "package"
-    if name == "port":
-        return "port"
-    if name == "parameter":
-        return "parameter"
-    if name == "enum_typespec":
-        return "enum"
-    if name == "enum_const":
-        return "enum-constant"
-    if name in {"always", "initial"}:
-        return "process"
-    if name == "case_stmt":
-        return "case"
-    if name in {"assign_stmt", "assignment", "cont_assign"}:
-        return "assignment"
-    if name.endswith(("_var", "_net")) or name in {"logic_var", "variables"}:
-        return "variable"
-    return None
-
-
-def _objects(serializer: Any) -> Iterable[Any]:
-    objects = serializer.AllObjects()
-    if isinstance(objects, dict):
-        return objects.keys()
-    return objects
-
-
-def _module_name(obj: Any) -> str:
-    parent = _call(obj, "VpiParent")
-    while parent is not None:
-        if _kind(parent) == "module":
-            return str(_call(parent, "VpiName", "") or _call(parent, "VpiDefName", ""))
-        parent = _call(parent, "VpiParent")
-    return ""
-
-
-def _direction(value: Any) -> str:
-    # IEEE VPI direction constants are stable; unknown values remain explicit.
-    return {1: "input", 2: "output", 3: "inout", 4: "mixed", 5: "none"}.get(
-        value, "unknown"
-    )
-
-
-def _normalize_source_paths(
-    data: dict[str, Any], source_root: Path | None
-) -> dict[str, Any]:
-    if source_root is None:
-        return data
-    root = source_root.resolve()
-    for record in data.get("objects", []):
-        value = record.get("file")
-        if not value:
-            continue
-        try:
-            record["file"] = str(Path(value).resolve().relative_to(root))
-        except ValueError:
-            pass
-    return data
-
-
-def _exporter_snapshot(
-    path: Path, source_root: Path | None = None
-) -> dict[str, Any]:
-    executable = shutil.which("uhdm-export")
-    if not executable:
-        raise RuntimeError(
-            "UHDM binding does not expose Serializer.AllObjects() and "
-            "uhdm-export is unavailable"
-        )
-    with tempfile.TemporaryDirectory(prefix="eda-uhdm-") as temporary:
-        output = Path(temporary) / "uhdm.json"
-        result = subprocess.run(
-            [executable, str(path.resolve()), str(output)],
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            check=False,
-        )
-        if result.returncode:
-            raise RuntimeError(
-                f"uhdm-export failed with exit code {result.returncode}: "
-                f"{result.stdout.strip()}"
-            )
-        try:
-            data = json.loads(output.read_text(encoding="utf-8"))
-        except (FileNotFoundError, json.JSONDecodeError) as exc:
-            raise RuntimeError("uhdm-export produced invalid JSON") from exc
-    if data.get("format") != "uhdm-json" or not isinstance(data.get("objects"), list):
-        raise RuntimeError("uhdm-export produced an unsupported snapshot")
-    return _normalize_source_paths(data, source_root)
-
-
-def snapshot(path: Path, *, source_root: Path | None = None) -> dict[str, Any]:
-    try:
-        import uhdm  # type: ignore[import-not-found]
-    except ImportError as exc:
-        raise RuntimeError(
-            "UHDM Python binding is unavailable; use the eda-uhdm image"
-        ) from exc
-    serializer = uhdm.Serializer()
-    if not callable(getattr(serializer, "AllObjects", None)):
-        return _exporter_snapshot(path, source_root)
-    designs = serializer.Restore(str(path.resolve()))
-    if not designs:
-        raise ValueError("UHDM database contains no design")
-    records = []
-    for obj in sorted(_objects(serializer), key=lambda item: int(_call(item, "UhdmId", 0))):
-        kind = _kind(obj)
-        if kind is None:
-            continue
-        file_value = str(_call(obj, "VpiFile", "") or "")
-        if source_root and file_value:
-            try:
-                file_value = str(Path(file_value).resolve().relative_to(source_root.resolve()))
-            except ValueError:
-                pass
-        parent = _call(obj, "VpiParent")
-        record: dict[str, Any] = {
-            "id": int(_call(obj, "UhdmId", 0)),
-            "kind": kind,
-            "name": str(_call(obj, "VpiName", "") or ""),
-            "definition": str(_call(obj, "VpiDefName", "") or ""),
-            "parent_id": int(_call(parent, "UhdmId", 0)) if parent else None,
-            "module": _module_name(obj),
-            "file": file_value,
-            "line": int(_call(obj, "VpiLineNo", 0)),
-            "column": int(_call(obj, "VpiColumnNo", 0)),
-            "end_line": int(_call(obj, "VpiEndLineNo", 0)),
-            "end_column": int(_call(obj, "VpiEndColumnNo", 0)),
-        }
-        if kind == "module" and not record["module"]:
-            record["module"] = record["name"] or record["definition"]
-        if kind == "port":
-            record["direction"] = _direction(_call(obj, "VpiDirection", 0))
-            record["size"] = int(_call(obj, "VpiSize", 0))
-        if kind == "enum-constant":
-            record["value"] = str(_call(obj, "VpiValue", "") or "")
-            record["decompile"] = str(_call(obj, "VpiDecompile", "") or "")
-            record["size"] = int(_call(obj, "VpiSize", 0))
-        if kind == "process":
-            record["process_type"] = _class_name(obj)
-        typespec = _call(obj, "Typespec")
-        actual = _call(typespec, "Actual_typespec") if typespec else None
-        typespec = actual or typespec
-        if typespec:
-            record["typespec_id"] = int(_call(typespec, "UhdmId", 0))
-            record["typespec_name"] = str(
-                _call(typespec, "VpiName", "") or _call(typespec, "VpiDefName", "")
-            )
-        records.append(record)
-    return _normalize_source_paths({
-        "schema_version": 1,
-        "format": "uhdm-json",
-        "source": path.name,
-        "objects": records,
-    }, source_root)
+DEFAULT_TIMEOUT_SECONDS = 120
+DEFAULT_MAX_OUTPUT_BYTES = 4 * 1024 * 1024
 
 
 def _digest(path: Path) -> str:
@@ -198,68 +24,189 @@ def _digest(path: Path) -> str:
     return value.hexdigest()
 
 
-def query_snapshot(
-    data: dict[str, Any],
-    source_path: Path,
-    *,
-    kind: str,
-    selectors: dict[str, str],
-    limit: int,
-    offset: int,
-) -> dict[str, Any]:
-    if limit < 1 or limit > 10_000 or offset < 0:
-        raise ValueError("limit must be 1..10000 and offset must be non-negative")
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def binding_info() -> dict[str, str]:
     try:
-        items = _uhdm(data, kind, selectors)
-        status = "ok" if items[offset : offset + limit] else "empty"
-        warnings: list[str] = []
-    except NotImplementedError:
-        items, status = [], "unsupported"
-        warnings = [f"{kind} is unsupported by uhdm"]
-    page = items[offset : offset + limit]
-    next_offset = offset + limit if offset + limit < len(items) else None
-    return _result(
-        "uhdm",
-        kind,
-        {**selectors, "limit": limit, "offset": offset},
-        {
-            "path": str(source_path.resolve()),
-            "sha256": _digest(source_path),
-            "format": "uhdm-binary",
-        },
-        status,
-        page,
-        warnings,
-        truncated=next_offset is not None,
-        next_offset=next_offset,
-    )
-
-
-def _selectors(args: argparse.Namespace) -> dict[str, str]:
+        import uhdm  # type: ignore[import-not-found]
+    except ImportError as exc:
+        raise RuntimeError(
+            "UHDM Python binding is unavailable; use the eda-uhdm image"
+        ) from exc
+    serializer = uhdm.Serializer()
     return {
-        key: value
-        for key, value in {"module": args.module, "name": args.name}.items()
-        if value
+        "module": str(Path(uhdm.__file__).resolve()),
+        "serializer_format_version": str(
+            getattr(serializer, "kVersion", "unknown")
+        ),
     }
+
+
+def _write_json_atomic(path: Path, value: dict[str, Any]) -> None:
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(
+        json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(path)
+
+
+def _capture(
+    command: list[str],
+    *,
+    environment: dict[str, str],
+    timeout: int,
+    max_output_bytes: int,
+) -> tuple[int, bytes, bytes, str | None]:
+    process = subprocess.Popen(
+        command,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=environment,
+    )
+    assert process.stdout is not None
+    assert process.stderr is not None
+    streams = {
+        process.stdout.fileno(): ("stdout", process.stdout),
+        process.stderr.fileno(): ("stderr", process.stderr),
+    }
+    buffers = {"stdout": bytearray(), "stderr": bytearray()}
+    selector = selectors.DefaultSelector()
+    for descriptor, (_, stream) in streams.items():
+        selector.register(stream, selectors.EVENT_READ, descriptor)
+
+    started = time.monotonic()
+    stop_reason: str | None = None
+    while selector.get_map():
+        remaining = timeout - (time.monotonic() - started)
+        if remaining <= 0 and stop_reason is None:
+            stop_reason = "timeout"
+            process.kill()
+        events = selector.select(timeout=max(0.0, min(0.1, remaining)))
+        for key, _ in events:
+            descriptor = int(key.data)
+            label, stream = streams[descriptor]
+            chunk = os.read(descriptor, 64 * 1024)
+            if not chunk:
+                selector.unregister(stream)
+                continue
+            room = max_output_bytes - sum(len(value) for value in buffers.values())
+            if room > 0:
+                buffers[label].extend(chunk[:room])
+            if len(chunk) > room and stop_reason is None:
+                stop_reason = "output_limit"
+                process.kill()
+        if stop_reason is not None and process.poll() is not None and not events:
+            # Pipes become readable at EOF; keep looping until both are drained.
+            continue
+    returncode = process.wait()
+    selector.close()
+    process.stdout.close()
+    process.stderr.close()
+    return returncode, bytes(buffers["stdout"]), bytes(buffers["stderr"]), stop_reason
+
+
+def run_query(
+    database: Path,
+    script: Path,
+    output_dir: Path,
+    *,
+    script_args: Sequence[str] = (),
+    timeout: int = DEFAULT_TIMEOUT_SECONDS,
+    max_output_bytes: int = DEFAULT_MAX_OUTPUT_BYTES,
+) -> dict[str, Any]:
+    if timeout < 1:
+        raise ValueError("timeout must be a positive number of seconds")
+    if max_output_bytes < 1:
+        raise ValueError("max_output_bytes must be positive")
+    database = database.resolve()
+    script = script.resolve()
+    output_dir = output_dir.resolve()
+    if not database.is_file():
+        raise FileNotFoundError(database)
+    if not script.is_file():
+        raise FileNotFoundError(script)
+    if script.suffix.lower() != ".py":
+        raise ValueError("UHDM query script must have a .py suffix")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    info = binding_info()
+    arguments = list(script_args)
+    command = [sys.executable, str(script), *arguments]
+    environment = dict(os.environ)
+    environment["UHDM_DATABASE"] = str(database)
+    started_at = _utc_now()
+    started = time.monotonic()
+    returncode, stdout, stderr, stop_reason = _capture(
+        command,
+        environment=environment,
+        timeout=timeout,
+        max_output_bytes=max_output_bytes,
+    )
+    ended_at = _utc_now()
+    stdout_path = output_dir / "stdout.log"
+    stderr_path = output_dir / "stderr.log"
+    stdout_path.write_bytes(stdout)
+    stderr_path.write_bytes(stderr)
+    status = (
+        stop_reason
+        if stop_reason is not None
+        else "passed"
+        if returncode == 0
+        else "failed"
+    )
+    result: dict[str, Any] = {
+        "schema_version": 1,
+        "status": status,
+        "database": {
+            "path": str(database),
+            "sha256": _digest(database),
+            "size": database.stat().st_size,
+        },
+        "script": {
+            "path": str(script),
+            "sha256": _digest(script),
+        },
+        "arguments": arguments,
+        "binding": info,
+        "image_revision": os.environ.get("IMAGE_REVISION", "unknown"),
+        "started_at": started_at,
+        "ended_at": ended_at,
+        "elapsed_seconds": round(time.monotonic() - started, 6),
+        "timeout_seconds": timeout,
+        "max_output_bytes": max_output_bytes,
+        "returncode": returncode,
+        "stdout": {
+            "path": str(stdout_path),
+            "sha256": hashlib.sha256(stdout).hexdigest(),
+            "bytes": len(stdout),
+        },
+        "stderr": {
+            "path": str(stderr_path),
+            "sha256": hashlib.sha256(stderr).hexdigest(),
+            "bytes": len(stderr),
+        },
+    }
+    _write_json_atomic(output_dir / "run.json", result)
+    return result
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="eda-uhdm")
     commands = parser.add_subparsers(dest="command", required=True)
-    export = commands.add_parser("export")
-    export.add_argument("database")
-    export.add_argument("--output", required=True)
-    export.add_argument("--source-root")
-    for name in ("query", "serve"):
-        command = commands.add_parser(name)
-        command.add_argument("database")
-        if name == "query":
-            command.add_argument("--kind", required=True)
-            command.add_argument("--module")
-            command.add_argument("--name")
-            command.add_argument("--limit", type=int, default=100)
-            command.add_argument("--offset", type=int, default=0)
     commands.add_parser("version")
+    run = commands.add_parser("run")
+    run.add_argument("database")
+    run.add_argument("script")
+    run.add_argument("--output-dir", required=True)
+    run.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT_SECONDS)
+    run.add_argument(
+        "--max-output-bytes", type=int, default=DEFAULT_MAX_OUTPUT_BYTES
+    )
+    run.add_argument("script_args", nargs="*")
     return parser
 
 
@@ -267,46 +214,30 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         if args.command == "version":
-            import uhdm  # type: ignore[import-not-found]
-
-            print(f"eda-uhdm schema 1; binding={uhdm.__file__}")
-            return 0
-        database = Path(args.database)
-        data = snapshot(
-            database,
-            source_root=Path(args.source_root) if getattr(args, "source_root", None) else None,
-        )
-        if args.command == "export":
-            output = Path(args.output)
-            output.parent.mkdir(parents=True, exist_ok=True)
-            temporary = output.with_name(output.name + ".tmp")
-            temporary.write_text(
-                json.dumps(data, sort_keys=True, ensure_ascii=False) + "\n",
-                encoding="utf-8",
+            info = binding_info()
+            print(
+                "eda-uhdm runner schema 1; "
+                f"binding={info['module']}; "
+                f"serializer-format={info['serializer_format_version']}"
             )
-            temporary.replace(output)
             return 0
-        if args.command == "query":
-            print(json.dumps(query_snapshot(
-                data, database, kind=args.kind, selectors=_selectors(args),
-                limit=args.limit, offset=args.offset,
-            ), sort_keys=True, ensure_ascii=False))
-            return 0
-        for line in sys.stdin:
-            try:
-                request = json.loads(line)
-                response = query_snapshot(
-                    data,
-                    database,
-                    kind=request["kind"],
-                    selectors=request.get("selectors", {}),
-                    limit=int(request.get("limit", 100)),
-                    offset=int(request.get("offset", 0)),
-                )
-            except (KeyError, TypeError, ValueError) as exc:
-                response = {"status": "error", "error": str(exc)}
-            print(json.dumps(response, sort_keys=True, ensure_ascii=False), flush=True)
-        return 0
+        script_args = list(args.script_args)
+        result = run_query(
+            Path(args.database),
+            Path(args.script),
+            Path(args.output_dir),
+            script_args=script_args,
+            timeout=args.timeout,
+            max_output_bytes=args.max_output_bytes,
+        )
+        sys.stdout.buffer.write(Path(result["stdout"]["path"]).read_bytes())
+        sys.stdout.buffer.flush()
+        sys.stderr.buffer.write(Path(result["stderr"]["path"]).read_bytes())
+        print(
+            f"eda-uhdm run metadata: {Path(args.output_dir).resolve() / 'run.json'}",
+            file=sys.stderr,
+        )
+        return 0 if result["status"] == "passed" else 1
     except (FileNotFoundError, RuntimeError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1

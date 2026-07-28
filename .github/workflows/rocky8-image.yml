@@ -5,7 +5,6 @@ on:
     paths:
       - Dockerfile.rocky8
       - env/rocky8-environment.yml
-      - tools/uhdm_export/main.cpp
       - scripts/regress.sh
       - .github/workflows/rocky8-image.yml
   push:

@@ -9,7 +9,7 @@ Usage:
 
 Roles:
   agent       Workflow, benchmark, and offline queries
-  uhdm        Surelog and the UHDM Python query service
+  uhdm        Surelog and direct UHDM Python queries
   rtl         Verilator and Yosys
   scc         SystemC/SCC compilation and verification
   rocky       Rocky Linux 8 compatibility toolchain
@@ -32,7 +32,8 @@ Environment:
 Examples:
   scripts/eda-run rtl verilator --version
   scripts/eda-run uhdm surelog --version
-  scripts/eda-run uhdm eda-uhdm query design.uhdm --kind modules
+  scripts/eda-run uhdm eda-uhdm run /workspace/design.uhdm \
+    /workspace/query.py --output-dir /workspace/query-output
   scripts/eda-run scc --shell
   scripts/eda-run rocky --shell
 EOF
