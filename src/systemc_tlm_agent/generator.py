@@ -18,21 +18,39 @@ def _class_name(value: str) -> str:
     return "".join(part.capitalize() for part in _identifier(value).split("_")) + "Model"
 
 
-def _module_header(name: str) -> str:
+def _endpoint_member(endpoint: dict) -> str:
+    return _identifier(endpoint["name"])
+
+
+def _module_header(module: dict) -> str:
+    name = module["name"]
     cls = _class_name(name)
     guard = f"GENERATED_{_identifier(name).upper()}_HPP"
+    targets = [endpoint for endpoint in module["endpoints"] if endpoint["direction"] == "inbound"]
+    initiators = [endpoint for endpoint in module["endpoints"] if endpoint["direction"] == "outbound"]
+    sockets = "\n".join(
+        f"    tlm_utils::simple_target_socket<{cls}> {_endpoint_member(endpoint)};"
+        for endpoint in targets
+    )
+    if sockets and initiators:
+        sockets += "\n"
+    sockets += "\n".join(
+        f"    tlm_utils::simple_initiator_socket<{cls}> {_endpoint_member(endpoint)};"
+        for endpoint in initiators
+    )
     return f"""#ifndef {guard}
 #define {guard}
 
 #include <systemc>
 #include <tlm>
+#include <tlm_utils/simple_initiator_socket.h>
 #include <tlm_utils/simple_target_socket.h>
 
 namespace generated {{
 
 class {cls} : public sc_core::sc_module {{
 public:
-    tlm_utils::simple_target_socket<{cls}> target_socket;
+{sockets}
 
     SC_HAS_PROCESS({cls});
     explicit {cls}(
@@ -50,16 +68,29 @@ private:
 """
 
 
-def _module_source(name: str) -> str:
+def _module_source(module: dict) -> str:
+    name = module["name"]
     cls = _class_name(name)
+    targets = [endpoint for endpoint in module["endpoints"] if endpoint["direction"] == "inbound"]
+    initializers = ", ".join(
+        f'{_endpoint_member(endpoint)}("{_endpoint_member(endpoint)}")' for endpoint in module["endpoints"]
+    )
+    registrations = "\n".join(
+        f"    {_endpoint_member(endpoint)}.register_b_transport(this, &{cls}::b_transport);"
+        for endpoint in targets
+    )
+    operations = "\n".join(
+        f"    // {operation['name']}: {operation['effect']} -> {operation['completion']}"
+        for operation in module["operations"]
+    )
     return f"""#include "{_identifier(name)}.hpp"
 #include "scc_adapter.hpp"
 
 namespace generated {{
 
 {cls}::{cls}(sc_core::sc_module_name name, sc_core::sc_time latency)
-    : sc_core::sc_module(name), target_socket("target_socket"), latency_(latency) {{
-    target_socket.register_b_transport(this, &{cls}::b_transport);
+    : sc_core::sc_module(name), {initializers}, latency_(latency) {{
+{registrations}
 }}
 
 void {cls}::b_transport(
@@ -67,6 +98,7 @@ void {cls}::b_transport(
     sc_core::sc_time& delay) {{
     // The per-module latency value comes from architecture.yaml.
     delay += latency_;
+{operations}
     if (transaction.get_data_ptr() == nullptr && transaction.get_data_length() != 0) {{
         transaction.set_response_status(tlm::TLM_GENERIC_ERROR_RESPONSE);
         report_warning(name(), "null payload with non-zero length");
@@ -117,7 +149,7 @@ def _top_header(modules: list[dict]) -> str:
     )
     initializers = ",\n        ".join(
         f'{_identifier(module["name"])}("{_identifier(module["name"])}", '
-        f'sc_core::sc_time({int(module.get("latency_ns", 1))}, sc_core::SC_NS))'
+        f'sc_core::sc_time({module["timing"]["service_latency_ns"]}, sc_core::SC_NS))'
         for module in modules
     )
     initializers = " : sc_core::sc_module(name)" + (
@@ -196,15 +228,8 @@ def generate_model(project_dir: Path) -> dict:
     paths = project_paths(project_dir)
     architecture = load_yaml(paths["contracts"])
     top_name = architecture["top"]
-    # The RTL top is a composition boundary, so generate transaction models for
-    # its children. A single-module design falls back to modeling the top.
-    modules = [
-        module
-        for module in architecture["model"]["modules"]
-        if module["name"] != top_name
-    ]
-    if not modules:
-        modules = architecture["model"]["modules"]
+    handoff = architecture["tlm_handoff"]
+    modules = handoff["functional_modules"]
 
     include_dir = paths["model"] / "include"
     source_dir = paths["model"] / "src"
@@ -216,21 +241,22 @@ def generate_model(project_dir: Path) -> dict:
     for module in modules:
         name = module["name"]
         (include_dir / f"{_identifier(name)}.hpp").write_text(
-            _module_header(name), encoding="utf-8"
+            _module_header(module), encoding="utf-8"
         )
         (source_dir / f"{_identifier(name)}.cpp").write_text(
-            _module_source(name), encoding="utf-8"
+            _module_source(module), encoding="utf-8"
         )
     (include_dir / "model_top.hpp").write_text(_top_header(modules), encoding="utf-8")
     (test_dir / "model_smoke.cpp").write_text(_smoke_test(), encoding="utf-8")
     (paths["model"] / "CMakeLists.txt").write_text(_cmake(modules), encoding="utf-8")
+    dump_yaml(paths["model"] / "implementation-handoff.yaml", handoff)
     dump_yaml(
         paths["model"] / "generation.yaml",
         {
             "schema_version": 1,
             "top": top_name,
             "modules": [module["name"] for module in modules],
-            "abstraction": architecture["model"]["abstraction"],
+            "abstraction": handoff["policy"]["abstraction"],
             "approval": reason,
         },
     )

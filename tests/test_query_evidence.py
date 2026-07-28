@@ -42,6 +42,31 @@ class QueryEvidenceTest(unittest.TestCase):
         create_architecture_draft(root)
         return root
 
+    @staticmethod
+    def _complete_handoff(architecture: dict, evidence_id: str) -> None:
+        architecture["tlm_handoff"].update(
+            {
+                "transaction_types": [{
+                    "name": "query_request",
+                    "fields": [{"name": "address", "type": "unsigned", "width_bits": 32}],
+                    "response": {"success": "ok", "errors": []},
+                }],
+                "functional_modules": [{
+                    "name": "query_service",
+                    "responsibility": "Serve the query request.",
+                    "evidence_ids": [evidence_id],
+                    "endpoints": [{"name": "request", "direction": "inbound", "transaction": "query_request"}],
+                    "operations": [{"name": "serve", "trigger_endpoint": "request", "effect": "Process the request.", "completion": "Return ok.", "evidence_ids": [evidence_id]}],
+                    "state": {"states": ["idle"], "initial": "idle", "concurrency": "Serialized."},
+                    "timing": {"service_latency_ns": 1},
+                    "error_behavior": "Return an error response for invalid requests.",
+                    "observables": ["response"],
+                }],
+                "channels": [],
+                "acceptance_scenarios": [{"name": "query succeeds", "given": "A valid request.", "when": "request arrives.", "then": "The response is ok.", "evidence_ids": [evidence_id]}],
+            }
+        )
+
     def test_record_is_idempotent_and_usable_by_contracts(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             project = self._project(Path(temporary))
@@ -73,6 +98,7 @@ class QueryEvidenceTest(unittest.TestCase):
                         "evidence_ids": [first["evidence"]["id"]],
                     }],
                 )
+            self._complete_handoff(architecture, first["evidence"]["id"])
             dump_yaml(paths["contracts"], architecture)
             approve(project, approver="test")
             self.assertTrue(approval_is_valid(project)[0])

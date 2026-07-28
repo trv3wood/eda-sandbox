@@ -23,7 +23,7 @@ CONTRACT_CATEGORIES = [
 ]
 
 
-def _rtl_modules(paths: dict[str, Path]) -> list[dict[str, Any]]:
+def _rtl_traceability(paths: dict[str, Path]) -> list[dict[str, Any]]:
     facts = load_json(paths["facts"] / "rtl.json")
     modules = []
     seen = set()
@@ -32,14 +32,7 @@ def _rtl_modules(paths: dict[str, Path]) -> list[dict[str, Any]]:
             if module["name"] in seen:
                 continue
             seen.add(module["name"])
-            modules.append(
-                {
-                    "name": module["name"],
-                    "rtl_evidence": [module["evidence"]],
-                    "responsibility": "unresolved",
-                    "latency_ns": 1,
-                }
-            )
+            modules.append({"rtl_module": module["name"], "evidence_ids": [module["evidence"]]})
     return modules
 
 
@@ -56,19 +49,33 @@ def create_architecture_draft(project_dir: Path) -> dict[str, Any]:
             "open_questions": [],
         }
     architecture = {
-        "schema_version": 1,
+        "schema_version": 2,
         "project": manifest["name"],
         "top": manifest.get("target_top", manifest.get("top")),
         "status": "draft",
         "categories": categories,
         "model": {
-            # Current generator defaults. They are persisted in the contract so
-            # an Architect can review or change them before approval.
             "abstraction": "loosely-timed-tlm-2.0",
             "language": "c++17",
             "scc_policy": "scc-first-adapter-isolated",
-            "modules": _rtl_modules(paths),
         },
+        "tlm_handoff": {
+            "policy": {
+                "abstraction": "loosely-timed-tlm-2.0",
+                "transport": "b_transport",
+                "forbidden_detail": [
+                    "clock edges",
+                    "RTL signals and handshakes",
+                    "pipeline-register behavior",
+                    "cycle-by-cycle scheduling",
+                ],
+            },
+            "transaction_types": [],
+            "functional_modules": [],
+            "channels": [],
+            "acceptance_scenarios": [],
+        },
+        "rtl_traceability": _rtl_traceability(paths),
     }
     if not paths["contracts"].exists():
         dump_yaml(paths["contracts"], architecture)
@@ -81,6 +88,8 @@ def validate_architecture(project_dir: Path) -> list[str]:
     paths = project_paths(project_dir)
     architecture = load_yaml(paths["contracts"])
     errors = []
+    if architecture.get("schema_version") != 2:
+        errors.append("schema_version must be 2 for approval")
     categories = architecture.get("categories", {})
     evidence_ids = {item["id"] for item in all_evidence(project_dir)}
     for key, _ in CONTRACT_CATEGORIES:
@@ -103,9 +112,7 @@ def validate_architecture(project_dir: Path) -> list[str]:
                     errors.append(
                         f"{key}.items[{index}]: unknown evidence ID {evidence_id}"
                     )
-    modules = architecture.get("model", {}).get("modules", [])
-    if not modules:
-        errors.append("model.modules must not be empty")
+    _validate_tlm_handoff(architecture, evidence_ids, errors)
 
     conflicts = load_yaml(paths["conflicts"]) if paths["conflicts"].exists() else {}
     unresolved = [
@@ -116,6 +123,178 @@ def validate_architecture(project_dir: Path) -> list[str]:
     if unresolved:
         errors.append(f"{len(unresolved)} unresolved evidence conflict(s)")
     return errors
+
+
+def _non_empty_text(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _validate_evidence_ids(
+    values: Any, evidence_ids: set[str], path: str, errors: list[str]
+) -> None:
+    if not isinstance(values, list) or not values:
+        errors.append(f"{path}: evidence_ids is required")
+        return
+    for evidence_id in values:
+        if evidence_id not in evidence_ids:
+            errors.append(f"{path}: unknown evidence ID {evidence_id}")
+
+
+def _validate_tlm_handoff(
+    architecture: dict[str, Any], evidence_ids: set[str], errors: list[str]
+) -> None:
+    handoff = architecture.get("tlm_handoff")
+    if not isinstance(handoff, dict):
+        errors.append("tlm_handoff is required")
+        return
+    policy = handoff.get("policy")
+    if not isinstance(policy, dict):
+        errors.append("tlm_handoff.policy is required")
+    else:
+        if policy.get("abstraction") != "loosely-timed-tlm-2.0":
+            errors.append("tlm_handoff.policy.abstraction must be loosely-timed-tlm-2.0")
+        if policy.get("transport") != "b_transport":
+            errors.append("tlm_handoff.policy.transport must be b_transport")
+        forbidden = policy.get("forbidden_detail")
+        if not isinstance(forbidden, list) or not forbidden:
+            errors.append("tlm_handoff.policy.forbidden_detail is required")
+
+    transactions = handoff.get("transaction_types")
+    if not isinstance(transactions, list) or not transactions:
+        errors.append("tlm_handoff.transaction_types must not be empty")
+        transactions = []
+    transaction_names: set[str] = set()
+    for index, transaction in enumerate(transactions, start=1):
+        path = f"tlm_handoff.transaction_types[{index}]"
+        if not isinstance(transaction, dict) or not _non_empty_text(transaction.get("name")):
+            errors.append(f"{path}: name is required")
+            continue
+        name = transaction["name"]
+        if name in transaction_names:
+            errors.append(f"{path}: duplicate transaction name {name}")
+        transaction_names.add(name)
+        fields = transaction.get("fields")
+        if not isinstance(fields, list) or not fields:
+            errors.append(f"{path}: fields must not be empty")
+        else:
+            for field_index, field in enumerate(fields, start=1):
+                field_path = f"{path}.fields[{field_index}]"
+                if not isinstance(field, dict) or not _non_empty_text(field.get("name")):
+                    errors.append(f"{field_path}: name is required")
+                if not isinstance(field, dict) or not _non_empty_text(field.get("type")):
+                    errors.append(f"{field_path}: type is required")
+                if isinstance(field, dict) and "width_bits" in field and (
+                    not isinstance(field["width_bits"], int) or field["width_bits"] <= 0
+                ):
+                    errors.append(f"{field_path}: width_bits must be a positive integer")
+        response = transaction.get("response")
+        if not isinstance(response, dict) or not _non_empty_text(response.get("success")):
+            errors.append(f"{path}: response.success is required")
+
+    modules = handoff.get("functional_modules")
+    if not isinstance(modules, list) or not modules:
+        errors.append("tlm_handoff.functional_modules must not be empty")
+        modules = []
+    module_endpoints: dict[str, dict[str, dict[str, Any]]] = {}
+    for index, module in enumerate(modules, start=1):
+        path = f"tlm_handoff.functional_modules[{index}]"
+        if not isinstance(module, dict) or not _non_empty_text(module.get("name")):
+            errors.append(f"{path}: name is required")
+            continue
+        name = module["name"]
+        if name in module_endpoints:
+            errors.append(f"{path}: duplicate functional module name {name}")
+        module_endpoints[name] = {}
+        if not _non_empty_text(module.get("responsibility")):
+            errors.append(f"{path}: responsibility is required")
+        _validate_evidence_ids(module.get("evidence_ids"), evidence_ids, path, errors)
+        endpoints = module.get("endpoints")
+        if not isinstance(endpoints, list) or not endpoints:
+            errors.append(f"{path}: endpoints must not be empty")
+            endpoints = []
+        for endpoint_index, endpoint in enumerate(endpoints, start=1):
+            endpoint_path = f"{path}.endpoints[{endpoint_index}]"
+            if not isinstance(endpoint, dict) or not _non_empty_text(endpoint.get("name")):
+                errors.append(f"{endpoint_path}: name is required")
+                continue
+            endpoint_name = endpoint["name"]
+            module_endpoints[name][endpoint_name] = endpoint
+            if endpoint.get("direction") not in {"inbound", "outbound"}:
+                errors.append(f"{endpoint_path}: direction must be inbound or outbound")
+            if endpoint.get("transaction") not in transaction_names:
+                errors.append(f"{endpoint_path}: transaction must name a transaction type")
+        operations = module.get("operations")
+        if not isinstance(operations, list) or not operations:
+            errors.append(f"{path}: operations must not be empty")
+        else:
+            for operation_index, operation in enumerate(operations, start=1):
+                operation_path = f"{path}.operations[{operation_index}]"
+                if not isinstance(operation, dict):
+                    errors.append(f"{operation_path}: must be a mapping")
+                    continue
+                for key in ("name", "trigger_endpoint", "effect", "completion"):
+                    if not _non_empty_text(operation.get(key)):
+                        errors.append(f"{operation_path}: {key} is required")
+                if operation.get("trigger_endpoint") not in module_endpoints[name]:
+                    errors.append(f"{operation_path}: trigger_endpoint must name a module endpoint")
+                _validate_evidence_ids(operation.get("evidence_ids"), evidence_ids, operation_path, errors)
+        state = module.get("state")
+        if not isinstance(state, dict) or not isinstance(state.get("states"), list) or not state["states"]:
+            errors.append(f"{path}: state.states must not be empty")
+        elif state.get("initial") not in state["states"]:
+            errors.append(f"{path}: state.initial must name a declared state")
+        if not isinstance(state, dict) or not _non_empty_text(state.get("concurrency")):
+            errors.append(f"{path}: state.concurrency is required")
+        timing = module.get("timing")
+        if not isinstance(timing, dict) or not isinstance(timing.get("service_latency_ns"), int) or timing["service_latency_ns"] < 0:
+            errors.append(f"{path}: timing.service_latency_ns must be a non-negative integer")
+        if not _non_empty_text(module.get("error_behavior")):
+            errors.append(f"{path}: error_behavior is required")
+        if not isinstance(module.get("observables"), list) or not module["observables"]:
+            errors.append(f"{path}: observables must not be empty")
+
+    channels = handoff.get("channels")
+    if not isinstance(channels, list):
+        errors.append("tlm_handoff.channels must be a list")
+        channels = []
+    for index, channel in enumerate(channels, start=1):
+        path = f"tlm_handoff.channels[{index}]"
+        if not isinstance(channel, dict):
+            errors.append(f"{path}: must be a mapping")
+            continue
+        for key in ("name", "transaction", "ordering", "ownership", "backpressure", "completion"):
+            if not _non_empty_text(channel.get(key)):
+                errors.append(f"{path}: {key} is required")
+        if channel.get("transaction") not in transaction_names:
+            errors.append(f"{path}: transaction must name a transaction type")
+        for side, direction in (("from", "outbound"), ("to", "inbound")):
+            endpoint = channel.get(side)
+            if not isinstance(endpoint, dict):
+                errors.append(f"{path}.{side}: module and endpoint are required")
+                continue
+            module = endpoint.get("module")
+            name = endpoint.get("endpoint")
+            known = module_endpoints.get(module, {}).get(name)
+            if known is None:
+                errors.append(f"{path}.{side}: unknown functional module endpoint")
+            elif known.get("direction") != direction:
+                errors.append(f"{path}.{side}: endpoint direction must be {direction}")
+            elif known.get("transaction") != channel.get("transaction"):
+                errors.append(f"{path}.{side}: endpoint transaction must match channel")
+
+    scenarios = handoff.get("acceptance_scenarios")
+    if not isinstance(scenarios, list) or not scenarios:
+        errors.append("tlm_handoff.acceptance_scenarios must not be empty")
+    else:
+        for index, scenario in enumerate(scenarios, start=1):
+            path = f"tlm_handoff.acceptance_scenarios[{index}]"
+            if not isinstance(scenario, dict):
+                errors.append(f"{path}: must be a mapping")
+                continue
+            for key in ("name", "given", "when", "then"):
+                if not _non_empty_text(scenario.get(key)):
+                    errors.append(f"{path}: {key} is required")
+            _validate_evidence_ids(scenario.get("evidence_ids"), evidence_ids, path, errors)
 
 
 def approval_payload(project_dir: Path) -> dict[str, Any]:
