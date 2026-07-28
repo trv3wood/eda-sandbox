@@ -13,6 +13,12 @@ those inputs makes it stale and blocks regeneration. Use loosely timed TLM-2.0
 by default, isolate minres-SCC-specific facilities, and add contract-traceable
 tests. Never reinterpret unresolved behavior.
 
+Use the generated `model/implementation-handoff.yaml` as the sole behavioral
+input. Implement its functional modules, transactions, endpoints, channel
+rules, operation effects, timing, errors, observables, and acceptance
+scenarios. Do not infer behavior from RTL signals, clocking, pipeline stages,
+or extracted facts; return any gap to the Architect for a new approved handoff.
+
 If SystemC/minres-SCC is absent on the host, use the `scc` role documented in
 `skills/modeling-systemc-tlm/references/tooling.md`; do not label verification
 blocked until that role has been checked. Do not launch a large image build or

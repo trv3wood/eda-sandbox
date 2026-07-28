@@ -10,13 +10,18 @@ Run deterministic extractors and EDA tools. Produce source-located facts and fla
 
 ## Architect
 
-Map evidence into all eight contracts, partition 7–8 module IPs, choose transaction boundaries, state/timing abstraction, and verification observables. Own conflicts and request decisions.
+Map evidence into all eight contracts and a schema-v2 `tlm_handoff`. Partition
+functional components rather than mirroring RTL modules; define transaction
+types, endpoints, channels, operation rules, state/timing abstraction, and
+verification observables. Own conflicts and request decisions.
 
 ## Implementer
 
-Generate and refine C++17 SystemC/TLM code strictly from approved contracts. Keep minres-SCC dependencies behind adapters. Add traceable tests for each contract.
+Generate and refine C++17 SystemC/TLM code strictly from the approved
+`model/implementation-handoff.yaml`. Do not use RTL/facts to choose behavior;
+request an Architect clarification instead. Keep minres-SCC dependencies behind
+adapters and add traceable tests for each acceptance scenario.
 
 ## Verifier
 
 Compile, run tests, compare against RTL where an explicit stimulus adapter exists, and report pass/fail/blocked separately. Never weaken a check to obtain a pass.
-

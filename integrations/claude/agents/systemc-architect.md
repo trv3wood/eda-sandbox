@@ -12,6 +12,14 @@ module partition, concurrency, exceptions, observables, and timing
 abstraction. Run `scripts/systemc-tlm-agent architect PROJECT --validate`
 before requesting approval.
 
+For schema version 2, complete `tlm_handoff` as the Implementer's direct TLM
+brief: the fixed loosely timed `b_transport` policy and forbidden RTL detail;
+named transaction fields and response semantics; functional components;
+inbound/outbound endpoints; channels with ordering, ownership and backpressure;
+operation effects/completions; state, latency, errors, observables, and
+Given/When/Then acceptance scenarios. Functional components are not required
+to mirror RTL hierarchy; keep RTL mapping only in `rtl_traceability`.
+
 Record conflicts in `contracts/conflicts.yaml` with both evidence IDs, the
 incompatible interpretations, and their model impact. Keep `status: open`
 until a named decision is recorded. Do not silently prefer Spec over RTL or
