@@ -212,10 +212,16 @@ def extract_project(project_dir: Path, *, run_tools: bool = True) -> dict[str, A
     compile_config = manifest.get("eda_compile", {})
     if compile_config and not isinstance(compile_config, dict):
         raise ValueError("manifest eda_compile must be a mapping")
+    excludes = compile_config.get("exclude_sources", [])
+    if not isinstance(excludes, list) or not all(
+        isinstance(value, str) and value for value in excludes
+    ):
+        raise ValueError("manifest eda_compile.exclude_sources must be a list of strings")
     compile_sources = resolve_inputs(
         project_dir,
         compile_config.get("sources", manifest.get("rtl", [])),
         directory_suffixes={".v", ".sv"},
+        exclude_values=excludes,
     )
     include_dirs = []
     for value in compile_config.get("include_dirs", []):
@@ -229,6 +235,8 @@ def extract_project(project_dir: Path, *, run_tools: bool = True) -> dict[str, A
         isinstance(value, str) and value for value in defines
     ):
         raise ValueError("manifest eda_compile.defines must be a list of strings")
+    if rtl_files and not compile_sources:
+        raise ValueError("manifest eda_compile sources are empty after exclude_sources")
     paths["facts"].mkdir(parents=True, exist_ok=True)
     dump_json(paths["facts"] / "documents.json", {"documents": documents})
     dump_json(paths["facts"] / "registers.json", {"workbooks": registers})

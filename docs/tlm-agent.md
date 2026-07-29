@@ -83,7 +83,7 @@ scripts/systemc-tlm-agent verify PROJECT --backend auto
 
 `extract` 会读取 DOCX 段落/表格和 XLSX 单元格，并登记 manifest 中的 RTL 输入。
 RTL 结构只接受通过固定 UHDM 流程产生的事实：Surelog 生成数据库，
-`uhdm-dump --elab` 验证恢复和 elaboration，`uhdm-lint` 检查数据库，
+Surelog 的零错误摘要和非空二进制 `.uhdm` 验证 elaboration，`uhdm-lint` 检查数据库，
 `uhdm-hier --line` 验证请求的 top，最后由官方 UHDM Python VPI binding 导出
 module/port/parameter/instance 结构并生成 evidence ID。不存在文本或正则 fallback。
 

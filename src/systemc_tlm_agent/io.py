@@ -57,6 +57,7 @@ def resolve_inputs(
     values: list[str],
     *,
     directory_suffixes: set[str] | None = None,
+    exclude_values: list[str] | None = None,
 ) -> list[Path]:
     """Resolve files, glob patterns, and optionally source directories."""
     result: list[Path] = []
@@ -88,7 +89,17 @@ def resolve_inputs(
                 raise FileNotFoundError(f"input file does not exist: {value}")
             result.append(resolved)
     # Overlapping directories/globs should not parse the same source twice.
-    return list(dict.fromkeys(result))
+    resolved = list(dict.fromkeys(result))
+    if not exclude_values:
+        return resolved
+    excluded = set(
+        resolve_inputs(
+            project_dir,
+            exclude_values,
+            directory_suffixes=directory_suffixes,
+        )
+    )
+    return [path for path in resolved if path not in excluded]
 
 
 def relative_to_project(project_dir: Path, path: Path) -> str:

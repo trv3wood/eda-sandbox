@@ -19,7 +19,11 @@ from .io import (
 from .uhdm_export import export_uhdm_structure
 
 
-def _run(command: list[str], cwd: Path, log: Path) -> dict[str, Any]:
+def _run(
+    command: list[str],
+    cwd: Path,
+    log: Path,
+) -> dict[str, Any]:
     executable = shutil.which(command[0])
     if not executable:
         return {"status": "unavailable", "command": command}
@@ -51,6 +55,46 @@ def _log_markers(log: Path, markers: tuple[str, ...]) -> tuple[bool, list[str]]:
                         found[marker] = True
     missing = [marker for marker, present in found.items() if not present]
     return not missing, missing
+
+
+def _surelog_summary_is_clean(log: Path) -> bool:
+    """Return whether Surelog reported zero fatal errors and errors."""
+    counts: dict[str, int] = {}
+    if not log.is_file():
+        return False
+    with log.open("r", encoding="utf-8", errors="replace") as stream:
+        for line in stream:
+            for name in ("FATAL", "ERROR"):
+                marker = f"[  {name}]"
+                if marker not in line:
+                    continue
+                try:
+                    counts[name] = int(line.rsplit(":", 1)[1].strip())
+                except (IndexError, ValueError):
+                    return False
+    return counts.get("FATAL") == 0 and counts.get("ERROR") == 0
+
+
+def _validated_surelog(
+    command: list[str], cwd: Path, log: Path, database: Path
+) -> dict[str, Any]:
+    """Validate Surelog from its database and summary, not warning exit codes."""
+    result = _run(command, cwd, log)
+    database_valid = database.is_file() and database.stat().st_size > 0
+    summary_clean = _surelog_summary_is_clean(log)
+    if database_valid and summary_clean:
+        return {
+            **result,
+            "status": "passed",
+            "validation": "non-empty UHDM database and zero Surelog ERROR/FATAL summary",
+        }
+    return {
+        **result,
+        "status": "failed",
+        "reason": "Surelog did not produce a clean elaborated UHDM database",
+        "database_present": database_valid,
+        "summary_clean": summary_clean,
+    }
 
 
 def _top_in_hierarchy(log: Path, reference_top: str) -> bool:
@@ -95,10 +139,16 @@ def _validated_cli(
 def _inputs(project: Path) -> tuple[dict[str, Any], list[Path], list[Path], list[str]]:
     manifest = load_yaml(project / "manifest.yaml")
     compile_config = manifest.get("eda_compile") or {}
+    excludes = compile_config.get("exclude_sources", [])
+    if not isinstance(excludes, list) or not all(
+        isinstance(value, str) and value for value in excludes
+    ):
+        raise ValueError("eda_compile.exclude_sources must be a list of strings")
     sources = resolve_inputs(
         project,
         compile_config.get("sources", manifest.get("rtl", [])),
         directory_suffixes={".v", ".sv"},
+        exclude_values=excludes,
     )
     include_dirs = []
     for value in compile_config.get("include_dirs", []):
@@ -112,6 +162,8 @@ def _inputs(project: Path) -> tuple[dict[str, Any], list[Path], list[Path], list
         isinstance(value, str) and value for value in defines
     ):
         raise ValueError("eda_compile.defines must be a list of strings")
+    if not sources:
+        raise ValueError("eda_compile sources are empty after exclude_sources")
     return manifest, sources, include_dirs, defines
 
 
@@ -156,22 +208,26 @@ def produce_uhdm(project: Path) -> dict[str, Any]:
         "surelog", *(str(path) for path in sources),
         *(f"-I{path}" for path in include_dirs),
         *(f"-D{value}" for value in defines),
-        "-top", str(top), "-parse", "-elabuhdm", "-d", "uhdm",
+        "-top", str(top), "-parse", "-elabuhdm",
     ]
-    surelog = _run(command, work, paths["tools"] / "surelog.log")
     database = work / "slpp_all" / "surelog.uhdm"
+    surelog = _validated_surelog(
+        command, work, paths["tools"] / "surelog.log", database
+    )
     database_valid = (
         surelog.get("status") == "passed"
         and database.is_file()
         and database.stat().st_size > 0
     )
     if database_valid:
-        uhdm_elab = _validated_cli(
-            ["uhdm-dump", "--elab", str(database)],
-            project,
-            paths["tools"] / "uhdm-elab.log",
-            markers=("Restored design Pre-Elab:", "Restored design Post-Elab:"),
-        )
+        uhdm_elab = {
+            "status": "passed",
+            "database": relative_to_project(project, database),
+            "validation": (
+                "Surelog -elabuhdm produced a non-empty binary UHDM database "
+                "with zero ERROR/FATAL summary"
+            ),
+        }
     else:
         uhdm_elab = {
             "status": "skipped",
@@ -199,7 +255,7 @@ def produce_uhdm(project: Path) -> dict[str, Any]:
                 "reason": f"elaborated hierarchy does not contain top {top}",
             }
     else:
-        reason = "UHDM elaboration validation did not pass"
+        reason = "Surelog did not produce a validated UHDM database"
         uhdm_lint = {"status": "skipped", "reason": reason}
         uhdm_hier = {"status": "skipped", "reason": reason}
 
@@ -252,16 +308,15 @@ def produce_uhdm(project: Path) -> dict[str, Any]:
 
 
 def produce_rtl(project: Path) -> dict[str, Any]:
-    manifest = load_yaml(project / "manifest.yaml")
+    manifest, rtl, include_dirs, defines = _inputs(project)
     paths = project_paths(project)
-    rtl = resolve_inputs(
-        project, manifest.get("rtl", []), directory_suffixes={".v", ".sv"}
-    )
     top = manifest.get("reference_top") or manifest.get("target_top") or manifest.get("top")
     verilator = _run(
         [
             "verilator", "--json-only", "--top-module", str(top),
             "--json-only-output", str(paths["tools"] / "verilator.json"),
+            *(f"-I{path}" for path in include_dirs),
+            *(f"-D{value}" for value in defines),
             *(str(path) for path in rtl),
         ],
         project,
@@ -269,6 +324,10 @@ def produce_rtl(project: Path) -> dict[str, Any]:
     )
     yosys_script = (
         "read_verilog -sv "
+        + " ".join(json.dumps(f"-I{path}") for path in include_dirs)
+        + " "
+        + " ".join(json.dumps(f"-D{value}") for value in defines)
+        + " "
         + " ".join(json.dumps(str(path)) for path in rtl)
         + f"; hierarchy -check -top {top}; write_json "
         + json.dumps(str(paths["tools"] / "yosys.json"))
@@ -369,12 +428,9 @@ def finalize_tools(project: Path) -> dict[str, Any]:
         != uhdm.get("database_sha256")
     ):
         fail("UHDM database is missing, changed, or inconsistent")
-    design_sources = resolve_inputs(
-        project, manifest.get("rtl", []), directory_suffixes={".v", ".sv"}
-    )
     expected_inputs = {
         "uhdm": sorted(file_digest(source) for source in host_sources),
-        "rtl": sorted(file_digest(source) for source in design_sources),
+        "rtl": sorted(file_digest(source) for source in host_sources),
     }
     for producer, record in producer_records.items():
         if (

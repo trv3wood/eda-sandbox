@@ -35,7 +35,7 @@ and locators. Re-run extraction whenever an input changes.
 
 With RTL inputs, `extract --skip-tools` creates a pending RTL inventory only.
 The standard producer flow must restore and elaborate the UHDM database with
-`uhdm-dump --elab`, lint it, verify the requested top through
+the generated binary `.uhdm`, lint it, verify the requested top through
 `uhdm-hier --line`, and export structure through the official UHDM Python
 binding. There is no text or regular-expression fallback. Architecture
 validation and approval require ready UHDM facts.

@@ -87,7 +87,8 @@ Treat `empty`, `unsupported`, warnings, and missing backend artifacts as
 limitations to report. The query layer never launches an EDA process; use the
 normal extraction workflow when artifacts need to be generated.
 
-The fixed producer flow is `surelog -elabuhdm`, `uhdm-dump --elab`,
+The fixed producer flow is `surelog -parse -elabuhdm` (which emits the binary
+`.uhdm`),
 `uhdm-lint`, `uhdm-hier --line`, then the official Python VPI exporter.
 Only after those gates pass may `tools finalize` publish RTL facts.
 

@@ -71,10 +71,11 @@ scripts/systemc-tlm-agent extract PROJECT --skip-tools
 
 当前规格证据提取支持 DOCX、Markdown 和 XLSX。SystemVerilog 不再使用文本或正则
 发现模块：RTL 首先处于 `pending`，随后固定执行
-`surelog -parse -elabuhdm`、`uhdm-dump --elab`、`uhdm-lint` 和
+`surelog -parse -elabuhdm`（生成二进制 `.uhdm`）、`uhdm-lint` 和
 `uhdm-hier --line`，并通过官方 UHDM Python VPI binding 导出结构。
 只有退出状态、elaboration 日志标记、请求的 top、输入/数据库/结构摘要全部校验
 通过，`facts/rtl.json` 才会成为 `backend: uhdm, status: ready`；否则不能审批。
+producer 不使用 Surelog 的 `-d uhdm` debug dump，避免把完整 UHDM tree 写入日志。
 Surelog 原生数据库保留在
 `tools/surelog-work/slpp_all/surelog.uhdm`，确定性结构保留在
 `tools/uhdm-structure.json`。
@@ -87,6 +88,11 @@ scripts/eda-run --work WORK rtl  eda-rtl-produce  /workspace/PROJECT
 scripts/eda-run --work WORK agent \
   systemc-tlm-agent tools finalize /workspace/PROJECT
 ```
+
+`eda_compile.sources` 同时是 UHDM、Verilator 与 Yosys 的编译文件集；
+`include_dirs` 和 `defines` 也会传给三个 producer。对于包含共享 primitive
+目录的 IP，可用 `exclude_sources`（文件、目录或 glob 列表）排除与该 top 无关、
+但依赖未被检出的模块。
 
 `eda-query` 只离线读取 Yosys/Verilator JSON；`eda-uhdm run DATABASE QUERY.py --output-dir OUTPUT -- ARGS...` 则在 UHDM 镜像中执行 Agent 编写的原生 Python API 查询，保存原始 stdout/stderr 和运行元数据。后者是探索信息，不直接生成证据 ID，必须回到有定位的 RTL/规格证据确认。详细接口见 `docs/agent-eda-query.md`。
 
