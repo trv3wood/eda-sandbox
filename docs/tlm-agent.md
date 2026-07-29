@@ -1,6 +1,6 @@
 # SystemC/TLM Agent 设计文档
 
-`src/systemc_tlm_agent` 是一个**证据到事务级模型**的确定性工作流内核。
+`src/tlm_agent` 是一个**证据到事务级模型**的确定性工作流内核。
 它不尝试把 RTL 自动翻译成逐周期 SystemC；它负责保存证据、校验由 Architect
 作出的事务语义决策、锁定人工审批，并从已批准的 TLM handoff 生成可继续实现的
 C++17/SystemC 骨架。

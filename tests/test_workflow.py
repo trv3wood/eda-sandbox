@@ -4,12 +4,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from systemc_tlm_agent.cli import command_init
-from systemc_tlm_agent.extractors import extract_project
-from systemc_tlm_agent.graph_finalize import finalize_graph
-from systemc_tlm_agent.graph_schema import entity, relationship, write_jsonl
-from systemc_tlm_agent.generator import generate_model
-from systemc_tlm_agent.io import (
+from tlm_agent.cli import command_init
+from tlm_agent.extractors import extract_project
+from tlm_agent.graph.finalize import finalize_graph
+from tlm_agent.graph.schema import entity, relationship, write_jsonl
+from tlm_agent.generator import generate_model
+from tlm_agent.io import (
     dump_yaml,
     file_digest,
     load_json,
@@ -18,7 +18,7 @@ from systemc_tlm_agent.io import (
     project_paths,
     resolve_inputs,
 )
-from systemc_tlm_agent.workflow import (
+from tlm_agent.workflow import (
     CONTRACT_CATEGORIES,
     approval_payload,
     approval_is_valid,
@@ -109,7 +109,7 @@ class WorkflowTest(unittest.TestCase):
         write_jsonl(paths["graph"] / "rtl_relationships.jsonl", edges)
         manifest = load_json(paths["graph_manifest"])
         manifest["producers"]["rtl"] = {"status": "passed"}
-        from systemc_tlm_agent.io import dump_json
+        from tlm_agent.io import dump_json
         dump_json(paths["graph_manifest"], manifest)
         finalize_graph(project, structure=None, sources=[source])
         return module["id"]
@@ -265,7 +265,7 @@ class WorkflowTest(unittest.TestCase):
             # architecture gate (for example, a graph marked pending).
             graph_manifest = load_json(paths["graph_manifest"])
             graph_manifest["status"] = "pending"
-            from systemc_tlm_agent.io import dump_json
+            from tlm_agent.io import dump_json
             dump_json(paths["graph_manifest"], graph_manifest)
             approval = load_yaml(paths["approval"])
             approval["content_sha256"] = object_digest(approval_payload(project))

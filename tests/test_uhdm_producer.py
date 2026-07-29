@@ -6,15 +6,15 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from systemc_tlm_agent.extractors import extract_project
-from systemc_tlm_agent.io import (
+from tlm_agent.extractors import extract_project
+from tlm_agent.io import (
     dump_json,
     dump_yaml,
     file_digest,
     load_json,
     project_paths,
 )
-from systemc_tlm_agent.tool_producers import _inputs, finalize_tools, produce_uhdm
+from tlm_agent.tool_producers import _inputs, finalize_tools, produce_uhdm
 
 
 class UhdmProducerTest(unittest.TestCase):
@@ -91,9 +91,9 @@ class UhdmProducerTest(unittest.TestCase):
 
             self.assertEqual(sources, [rtl.resolve()])
 
-    @patch("systemc_tlm_agent.tool_producers._version", return_value="1.84")
-    @patch("systemc_tlm_agent.tool_producers.export_uhdm_structure")
-    @patch("systemc_tlm_agent.tool_producers._run")
+    @patch("tlm_agent.tool_producers._version", return_value="1.84")
+    @patch("tlm_agent.tool_producers.export_uhdm_structure")
+    @patch("tlm_agent.tool_producers._run")
     def test_fixed_cli_sequence_and_markers(self, run, export, _version) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             project, rtl = self._project(Path(temporary))
@@ -134,9 +134,9 @@ class UhdmProducerTest(unittest.TestCase):
             )
             self.assertNotIn("-d", run.call_args_list[0].args[0])
 
-    @patch("systemc_tlm_agent.tool_producers._version", return_value="1.84")
-    @patch("systemc_tlm_agent.tool_producers.export_uhdm_structure")
-    @patch("systemc_tlm_agent.tool_producers._run")
+    @patch("tlm_agent.tool_producers._version", return_value="1.84")
+    @patch("tlm_agent.tool_producers.export_uhdm_structure")
+    @patch("tlm_agent.tool_producers._run")
     def test_surelog_without_clean_summary_fails_gate(
         self, run, export, _version
     ) -> None:
@@ -161,9 +161,9 @@ class UhdmProducerTest(unittest.TestCase):
             self.assertEqual(result["tools"]["uhdm"]["status"], "failed")
             export.assert_not_called()
 
-    @patch("systemc_tlm_agent.tool_producers._version", return_value="1.84")
-    @patch("systemc_tlm_agent.tool_producers.export_uhdm_structure")
-    @patch("systemc_tlm_agent.tool_producers._run")
+    @patch("tlm_agent.tool_producers._version", return_value="1.84")
+    @patch("tlm_agent.tool_producers.export_uhdm_structure")
+    @patch("tlm_agent.tool_producers._run")
     def test_finalize_publishes_portable_uhdm_graph(
         self, run, export, _version
     ) -> None:

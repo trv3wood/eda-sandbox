@@ -4,14 +4,14 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .graph_schema import (
+from .schema import (
     canonical_digest,
     read_jsonl,
     relationship,
     validate_graph,
     write_jsonl,
 )
-from .io import dump_json, file_digest, load_json
+from ..io import dump_json, file_digest, load_json
 from .rtl_graph import structure_to_graph
 
 

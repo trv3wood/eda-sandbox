@@ -15,7 +15,7 @@ from .io import (
     relative_to_project, resolve_inputs,
 )
 from .uhdm_export import export_uhdm_structure
-from .graph_finalize import finalize_graph
+from .graph.finalize import finalize_graph
 
 
 def _run(
@@ -436,4 +436,3 @@ def _main(kind: str, argv: list[str] | None = None) -> int:
 
 def uhdm_main(argv: list[str] | None = None) -> int:
     return _main("uhdm", argv)
-

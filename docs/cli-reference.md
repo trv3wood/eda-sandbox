@@ -7,11 +7,11 @@
 
 实现位置：
 
-- 入口点：`src/systemc_tlm_agent/cli.py`
-- 提取：`src/systemc_tlm_agent/extractors.py`
-- 合约与审批：`src/systemc_tlm_agent/workflow.py`
-- 生成：`src/systemc_tlm_agent/generator.py`
-- 验证：`src/systemc_tlm_agent/verifier.py`
+- 入口点：`src/tlm_agent/cli.py`
+- 提取：`src/tlm_agent/extractors.py`
+- 合约与审批：`src/tlm_agent/workflow.py`
+- 生成：`src/tlm_agent/generator.py`
+- 验证：`src/tlm_agent/verifier.py`
 
 ### 项目布局
 

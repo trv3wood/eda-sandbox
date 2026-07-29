@@ -13,7 +13,7 @@ from .io import (
     object_digest,
     project_paths,
 )
-from .graph_schema import read_jsonl
+from .graph.schema import read_jsonl
 
 
 # These eight categories are a deliberate modeling policy, not IP-specific

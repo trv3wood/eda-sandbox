@@ -53,7 +53,7 @@ def verify_project(project_dir: Path, *, backend: str = "auto") -> dict[str, Any
         relative_project = project_dir.resolve().relative_to(repo_root)
         inner = (
             f"cd {shlex.quote(str(Path('/workspace') / relative_project))} && "
-            "PYTHONPATH=/workspace/src python3 -m systemc_tlm_agent.cli "
+            "PYTHONPATH=/workspace/src python3 -m tlm_agent.cli "
             "verify . --backend local"
         )
         provider = shutil.which("podman-compose")

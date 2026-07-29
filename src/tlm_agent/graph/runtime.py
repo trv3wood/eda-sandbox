@@ -4,8 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .graph_schema import read_jsonl
-from .io import dump_json, load_json
+from .schema import read_jsonl
+from ..io import dump_json, load_json
 
 EMBEDDING_MODEL = "intfloat/multilingual-e5-small"
 EMBEDDING_REVISION = "fd1525a9fd15316a2d503bf26ab031a61d056e98"
