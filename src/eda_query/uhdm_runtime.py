@@ -194,8 +194,25 @@ def run_query(
     return result
 
 
+class _ArgumentParser(argparse.ArgumentParser):
+    """Accept query-script arguments after ``--`` on all supported Python versions."""
+
+    def parse_args(
+        self, args: list[str] | None = None, namespace: argparse.Namespace | None = None
+    ) -> argparse.Namespace:
+        values = list(sys.argv[1:] if args is None else args)
+        if "--" not in values:
+            return super().parse_args(values, namespace)
+        separator = values.index("--")
+        parsed = super().parse_args(values[:separator], namespace)
+        if getattr(parsed, "command", None) != "run":
+            self.error("query script arguments are only valid with the run command")
+        parsed.script_args.extend(values[separator + 1:])
+        return parsed
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="eda-uhdm")
+    parser = _ArgumentParser(prog="eda-uhdm")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("version")
     run = commands.add_parser("run")

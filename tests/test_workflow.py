@@ -34,6 +34,30 @@ class Args:
 
 
 class WorkflowTest(unittest.TestCase):
+    def test_init_writes_spec_extraction_configuration(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            args = Args()
+            args.project = str(project)
+            args.name = "configured-ip"
+            args.top = "configured_ip"
+            args.rtl = []
+            args.spec_llm_model = "test-model"
+            args.spec_llm_base_url = "http://example.invalid/v1"
+            args.spec_llm_base_url_env = "TEST_LLM_BASE_URL"
+            args.spec_llm_api_key_env = "TEST_LLM_API_KEY"
+
+            command_init(args)
+
+            config = load_yaml(project / "manifest.yaml")["graph"]["spec_extraction"]
+            self.assertEqual(config["provider"], "openai-compatible")
+            self.assertEqual(config["model"], "test-model")
+            self.assertEqual(config["base_url"], "http://example.invalid/v1")
+            self.assertEqual(config["base_url_env"], "TEST_LLM_BASE_URL")
+            self.assertEqual(config["api_key_env"], "TEST_LLM_API_KEY")
+            self.assertEqual(config["batch_max_chars"], 24000)
+            self.assertEqual(config["response_format"], "json_object")
+
     @staticmethod
     def _publish_uhdm_fixture(project: Path, module_name: str) -> str:
         paths = project_paths(project)

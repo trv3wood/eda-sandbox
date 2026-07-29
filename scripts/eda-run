@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 usage() {
   cat <<'EOF'
 Usage:
@@ -8,13 +10,13 @@ Usage:
   scripts/eda-run [OPTIONS] ROLE --shell
 
 Roles:
-  agent       Workflow and graph/spec tooling
+  agent       Local uv workflow and graph/spec tooling
   uhdm        Surelog and direct UHDM Python queries
   scc         SystemC/SCC compilation and verification
   rocky       Rocky Linux 8 compatibility toolchain
 
 Options:
-  --work DIR       Mount DIR at /workspace (default: current directory)
+  --work DIR       Work root; /workspace paths are translated for agent (default: current directory)
   --image IMAGE    Override the role's image
   --tag TAG        Image tag (default: EDA_IMAGE_TAG or main)
   --pull POLICY    never, missing, always, or newer (default: never)
@@ -25,11 +27,11 @@ Environment:
   EDA_CONTAINER_ENGINE  podman or docker
   EDA_IMAGE_PREFIX      default: ghcr.io/trv3wood
   EDA_IMAGE_TAG         default: main
-  EDA_AGENT_IMAGE, EDA_UHDM_IMAGE, EDA_SCC_IMAGE,
-  EDA_ROCKY_IMAGE
+  EDA_UHDM_IMAGE, EDA_SCC_IMAGE, EDA_ROCKY_IMAGE
 
 Examples:
   scripts/eda-run uhdm surelog --version
+  scripts/eda-run --work workspace agent systemc-tlm-agent status /workspace/projects/example
   scripts/eda-run uhdm eda-uhdm run /workspace/design.uhdm \
     /workspace/query.py --output-dir /workspace/query-output
   scripts/eda-run scc --shell
@@ -97,8 +99,6 @@ fi
 
 case "${role}" in
   agent)
-    role_image="${EDA_AGENT_IMAGE:-}"
-    image_name="eda-agent"
     ;;
   uhdm)
     role_image="${EDA_UHDM_IMAGE:-}"
@@ -131,6 +131,33 @@ work_dir="$(realpath "${work_dir}")"
   printf 'ERROR: work directory does not exist: %s\n' "${work_dir}" >&2
   exit 2
 }
+
+if [[ "${role}" == "agent" ]]; then
+  if [[ "${shell_mode}" == true ]]; then
+    [[ $# -eq 0 ]] || {
+      printf 'ERROR: --shell does not accept a command\n' >&2
+      exit 2
+    }
+    exec "${SHELL:-/bin/bash}"
+  fi
+  [[ $# -ge 1 ]] || {
+    printf 'ERROR: COMMAND is required unless --shell is used\n' >&2
+    exit 2
+  }
+  command -v uv >/dev/null 2>&1 || {
+    printf 'ERROR: uv is required for the local agent role; run uv sync\n' >&2
+    exit 1
+  }
+  local_args=()
+  for argument in "$@"; do
+    case "${argument}" in
+      /workspace) local_args+=("${work_dir}") ;;
+      /workspace/*) local_args+=("${work_dir}/${argument#/workspace/}") ;;
+      *) local_args+=("${argument}") ;;
+    esac
+  done
+  exec uv run --project "${repo_root}" -- "${local_args[@]}"
+fi
 
 image="${image_override:-${role_image:-${EDA_IMAGE_PREFIX:-ghcr.io/trv3wood}/${image_name}:${tag}}}"
 engine="${EDA_CONTAINER_ENGINE:-}"

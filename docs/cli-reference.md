@@ -51,7 +51,8 @@ backend: local
 Surelog/UHDM 结构化 elaboration 使用。Surelog 接收 `eda_compile.sources`（未配置时
 使用 `rtl`）以及对应的 include directory/define。
 
-规范图需要一个支持 Structured Outputs 的 OpenAI-compatible endpoint：
+规范图需要一个支持 OpenAI-compatible JSON object 响应的 endpoint。返回内容仍会
+在本地通过完整 JSON Schema 和源跨度校验：
 
 ```yaml
 graph:
@@ -61,6 +62,7 @@ graph:
     base_url_env: SYSTEMC_TLM_LLM_BASE_URL
     api_key_env: SYSTEMC_TLM_LLM_API_KEY
     batch_max_chars: 24000
+    response_format: json_object
 ```
 
 密钥和 endpoint 只从环境变量读取，不写入项目产物。相同输入、prompt schema、

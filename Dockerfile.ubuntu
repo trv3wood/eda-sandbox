@@ -3,21 +3,6 @@ FROM ubuntu:24.04 AS ubuntu-base
 ENV DEBIAN_FRONTEND=noninteractive TZ=UTC
 WORKDIR /workspace
 
-# Lightweight workflow image. It intentionally contains no EDA or
-# SystemC compiler toolchain.
-FROM ubuntu-base AS agent
-ARG IMAGE_REVISION=unknown
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends python3 python3-pip && \
-    rm -rf /var/lib/apt/lists/*
-COPY pyproject.toml /opt/systemc-agent/
-COPY src /opt/systemc-agent/src
-COPY scripts/regress.sh /opt/systemc-agent/scripts/regress.sh
-RUN python3 -m pip install --break-system-packages --no-cache-dir \
-    '/opt/systemc-agent[graph]'
-ENV IMAGE_REVISION=${IMAGE_REVISION}
-CMD ["/bin/bash"]
-
 # Binary Surelog and UHDM runtime. The conda UHDM package does not include its
 # optional SWIG wrapper, which is added in the next disposable builder.
 FROM ubuntu-base AS uhdm-runtime

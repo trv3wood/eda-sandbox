@@ -1,15 +1,15 @@
 # 开源 EDA 沙盒
 
-Ubuntu 24.04 工具链按职责拆成四个独立镜像：
+工作流和图/规范工具通过本地 `uv` 环境运行；容器镜像只保留需要专用二进制
+工具链的角色：
 
-- `eda-agent`：工作流和图/规范工具；不含 EDA 编译器。
 - `eda-uhdm`：Surelog 和 UHDM Python binding，生成原生数据库并运行
   Agent 编写的直接 Python 查询。
 - `eda-scc`：SystemC/SCC 编译与验证；Conan 缓存只存在于 builder。
 - `eda-enterprise`：Rocky Linux 8，用于 RHEL 系列兼容性检查。
 
-Ubuntu agent 使用发行版 Python 3.12；UHDM 镜像使用同版本的 conda-forge
-`surelog` 和 `uhdm` 二进制包。conda 包未携带可选的 Python wrapper，因此
+先在宿主机运行 `uv sync`，再通过 `uv run` 或 `scripts/eda-run ... agent`
+调用工作流。UHDM 镜像使用 conda-forge `surelog` 和 `uhdm` 二进制包。conda 包未携带可选的 Python wrapper，因此
 wrapper 在临时 builder 中生成；Surelog 本身不再编译。商业 EDA 工具有意排除。
 
 ## 构建与运行
@@ -17,16 +17,18 @@ wrapper 在临时 builder 中生成；Surelog 本身不再编译。商业 EDA �
 使用 Docker：
 
 ```bash
-docker compose build eda-agent eda-uhdm
-docker compose run --rm eda-agent scripts/regress.sh
+uv sync --extra graph
+uv run systemc-tlm-agent --help
+docker compose build eda-uhdm
 docker compose run --rm eda-uhdm scripts/regress.sh
 ```
 
 使用 Podman（本环境推荐）：
 
 ```bash
-podman-compose build eda-agent eda-uhdm
-podman-compose run --rm eda-agent scripts/regress.sh
+uv sync --extra graph
+uv run systemc-tlm-agent --help
+podman-compose build eda-uhdm
 podman-compose run --rm eda-uhdm scripts/regress.sh
 ```
 
@@ -35,7 +37,6 @@ SCC 构建耗时较长，通常从 GitHub Container Registry 拉取 CI 产物；
 UHDM 镜像只额外编译 Python wrapper。本地只构建当前需要的轻量目标：
 
 ```bash
-podman-compose build eda-agent
 podman-compose build eda-uhdm
 ```
 
@@ -57,9 +58,7 @@ scripts/eda-run rocky --shell
 如果只需要构建镜像，可以直接使用 Podman 的原生构建命令。这不需要 Docker 兼容的 API socket：
 
 ```bash
-podman build -f Dockerfile.ubuntu --target agent -t eda-agent:local .
 podman build -f Dockerfile.rocky8 -t eda-enterprise:local .
-podman run --rm -it -v "$PWD:/workspace" eda-agent:local
 podman run --rm -it -v "$PWD:/workspace" eda-enterprise
 ```
 
@@ -75,7 +74,7 @@ podman compose build
 项目文件应放置在 `workspace/` 目录中。宿主机目录挂载在 `/workspace`，因此源代码的修改在容器退出后仍然保留。
 
 `.github/workflows/ubuntu-images.yml` 构建 `linux/amd64` GHCR 镜像，复用
-BuildKit/GHA cache，并强制单镜像小于 2 GiB（`eda-agent` 小于 500 MiB）。
+BuildKit/GHA cache，并强制单镜像小于 2 GiB。
 `.github/workflows/rocky8-image.yml` 独立构建并测试
 `ghcr.io/trv3wood/eda-enterprise`，避免 Rocky 兼容性构建拖慢 Ubuntu 矩阵。
 
