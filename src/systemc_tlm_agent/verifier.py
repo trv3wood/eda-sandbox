@@ -156,8 +156,8 @@ def verify_project(project_dir: Path, *, backend: str = "auto") -> dict[str, Any
         if build["returncode"] == 0
         else {"status": "skipped", "returncode": 1, "output": ""}
     )
-    rtl = load_json(paths["facts"] / "rtl.json")
-    verilator_status = rtl.get("tools", {}).get("verilator", {}).get("status")
+    graph = load_json(paths["graph_manifest"])
+    verilator_status = graph.get("tools", {}).get("verilator", {}).get("status")
     differential = {
         # Parsing/elaborating RTL alone is not equivalence checking. Keep this
         # blocked until a project supplies shared stimuli and normalization.

@@ -19,8 +19,14 @@
 PROJECT/
 ├── manifest.yaml
 └── .systemc-agent/
-    ├── evidence.jsonl
-    ├── facts/{documents,registers,rtl,summary}.json
+    ├── graph/
+    │   ├── manifest.json
+    │   ├── document_tree.json
+    │   ├── text_units.jsonl
+    │   ├── spec_{entities,relationships}.jsonl
+    │   ├── rtl_{entities,relationships}.jsonl
+    │   ├── cross_source_relationships.jsonl
+    │   └── {entities,relationships}.jsonl
     ├── contracts/{architecture,conflicts,approval}.yaml
     ├── model/
     └── verification/report.yaml
@@ -45,6 +51,21 @@ backend: local
 EDA 使用。Surelog 接收 `eda_compile.sources`（未配置时使用 `rtl`）以及对应的
 include directory/define；Verilator 和 Yosys 仅接收 `rtl`。
 
+规范图需要一个支持 Structured Outputs 的 OpenAI-compatible endpoint：
+
+```yaml
+graph:
+  spec_extraction:
+    provider: openai-compatible
+    model: your-model
+    base_url_env: SYSTEMC_TLM_LLM_BASE_URL
+    api_key_env: SYSTEMC_TLM_LLM_API_KEY
+    batch_max_chars: 24000
+```
+
+密钥和 endpoint 只从环境变量读取，不写入项目产物。相同输入、prompt schema、
+模型和温度会命中 `.systemc-agent/tools/spec-llm-cache/` 的确定性缓存。
+
 ### 命令
 
 #### `init`
@@ -61,20 +82,22 @@ scripts/systemc-tlm-agent init PROJECT \
 
 #### `extract`
 
-解析 manifest 输入，计算源文件摘要，写入规格证据和 RTL 清单，并可选择运行
-UHDM、Verilator 和 Yosys producer。
+解析 manifest 输入，计算源文件摘要，写入文档树、text units 和 pending graph，
+并可选择运行 Spec、UHDM、Verilator 和 Yosys producer。
 
 ```bash
 scripts/systemc-tlm-agent extract PROJECT
 scripts/systemc-tlm-agent extract PROJECT --skip-tools
 ```
 
-当前规格证据提取支持 DOCX、Markdown 和 XLSX。SystemVerilog 不再使用文本或正则
+文档前端支持 DOCX/OOXML、Markdown 和 XLSX。Spec producer 通过固定 JSON
+Schema 调用 OpenAI-compatible endpoint；每个实体和关系必须回链到 text unit
+中的精确字符区间。SystemVerilog 不再使用文本或正则
 发现模块：RTL 首先处于 `pending`，随后固定执行
 `surelog -parse -elabuhdm`（生成二进制 `.uhdm`）、`uhdm-lint` 和
 `uhdm-hier --line`，并通过官方 UHDM Python VPI binding 导出结构。
 只有退出状态、elaboration 日志标记、请求的 top、输入/数据库/结构摘要全部校验
-通过，`facts/rtl.json` 才会成为 `backend: uhdm, status: ready`；否则不能审批。
+通过，`graph/manifest.json` 才会成为 `status: ready`；否则不能审批。
 producer 不使用 Surelog 的 `-d uhdm` debug dump，避免把完整 UHDM tree 写入日志。
 Surelog 原生数据库保留在
 `tools/surelog-work/slpp_all/surelog.uhdm`，确定性结构保留在
@@ -85,8 +108,11 @@ Surelog 原生数据库保留在
 ```bash
 scripts/eda-run --work WORK uhdm eda-uhdm-produce /workspace/PROJECT
 scripts/eda-run --work WORK rtl  eda-rtl-produce  /workspace/PROJECT
+scripts/eda-run --work WORK agent eda-spec-produce /workspace/PROJECT
 scripts/eda-run --work WORK agent \
   systemc-tlm-agent tools finalize /workspace/PROJECT
+scripts/eda-run --work WORK agent \
+  systemc-tlm-agent graph build /workspace/PROJECT
 ```
 
 `eda_compile.sources` 同时是 UHDM、Verilator 与 Yosys 的编译文件集；
@@ -94,11 +120,26 @@ scripts/eda-run --work WORK agent \
 目录的 IP，可用 `exclude_sources`（文件、目录或 glob 列表）排除与该 top 无关、
 但依赖未被检出的模块。
 
+#### `graph`
+
+`graph build` 将规范 JSONL 转成 DuckDB 可查询的 Parquet；`graph index` 使用
+固定 revision 的 multilingual-e5-small 创建 FAISS 索引，但不会自动下载模型。
+`graph lookup/neighbors/path/search` 分别提供精确过滤、NetworkX 图遍历和向量
+检索。Parquet 与 FAISS 均为可重建索引，不参与审批哈希。
+
+```bash
+pip install '.[graph]'   # DuckDB、NetworkX、OpenAI client
+pip install '.[vector]'  # FAISS、sentence-transformers
+hf download intfloat/multilingual-e5-small \
+  --revision fd1525a9fd15316a2d503bf26ab031a61d056e98
+```
+
+运行时只从本地加载上述固定模型 revision，不会隐式访问网络。
+
 `eda-query` 只离线读取 Yosys/Verilator JSON；`eda-uhdm run DATABASE QUERY.py --output-dir OUTPUT -- ARGS...` 则在 UHDM 镜像中执行 Agent 编写的原生 Python API 查询，保存原始 stdout/stderr 和运行元数据。后者是探索信息，不直接生成证据 ID，必须回到有定位的 RTL/规格证据确认。详细接口见 `docs/agent-eda-query.md`。
 
-CLI 目前不支持将外部基准测试 EDA 包或任意 TXT 观察直接导入
-`evidence.jsonl`。Markdown 必须列入 manifest 的 `documents` 才会按源行生成证据；
-其他临时观察不能自行转换为证据 ID。
+合同中的 `evidence_ids` 只能引用规范图中带 `source_refs` 的实体。临时 EDA
+查询和日志不能自行转换为证据 ID。
 
 #### `architect`
 
@@ -121,7 +162,7 @@ scripts/systemc-tlm-agent architect PROJECT --validate
 scripts/systemc-tlm-agent approve PROJECT --approver NAME
 ```
 
-此后任何 manifest、事实、架构或冲突的更改都会使审批失效。即使历史 approval
+此后任何 manifest、输入、规范图、架构或冲突的更改都会使审批失效。即使历史 approval
 哈希仍匹配，只要当前 architecture/UHDM 门禁失败，也会被判为无效。
 
 #### `generate`

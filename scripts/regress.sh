@@ -35,7 +35,8 @@ printf '  Python:  %s\n' "$(python3 --version 2>&1)"
 
 case "${profile}" in
   agent)
-    require_tools python3 systemc-tlm-agent eda-query
+    require_tools python3 systemc-tlm-agent eda-query eda-spec-produce
+    python3 -c 'import duckdb, networkx, openai'
     systemc-tlm-agent --help >/dev/null
     ;;
   uhdm)

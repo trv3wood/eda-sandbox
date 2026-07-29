@@ -6,11 +6,14 @@ small role-specific images with the repository wrapper:
 ```bash
 scripts/eda-run --work WORK agent \
   systemc-tlm-agent extract /workspace/PROJECT --skip-tools
+scripts/eda-run --work WORK agent eda-spec-produce /workspace/PROJECT
 scripts/eda-run --work WORK agent systemc-tlm-agent status /workspace/PROJECT
 scripts/eda-run --work WORK uhdm eda-uhdm-produce /workspace/PROJECT
 scripts/eda-run --work WORK rtl eda-rtl-produce /workspace/PROJECT
 scripts/eda-run --work WORK agent \
   systemc-tlm-agent tools finalize /workspace/PROJECT
+scripts/eda-run --work WORK agent \
+  systemc-tlm-agent graph build /workspace/PROJECT
 scripts/eda-run --work WORK scc \
   systemc-tlm-agent verify /workspace/PROJECT --backend auto
 ```
@@ -38,11 +41,16 @@ The UHDM producer always runs this fixed sequence:
 4. `uhdm-hier surelog.uhdm --line`
 5. the official Python VPI exporter
 
+The Spec producer uses a fixed JSON Schema through an OpenAI-compatible API.
+Every entity and relationship must cite an exact span in a known text unit.
+Requests are deterministically batched and cached by input, prompt/schema,
+model, and parameters.
+
 Do not add Surelog's `-d uhdm` debug dump to the producer invocation: it emits
 the complete UHDM tree to stdout and can make logs hundreds of megabytes.
 Do not trust exit code alone: UHDM 1.84 command-line tools return success for
 some usage and missing-file paths. The producer also requires the documented
-restore/elaboration markers and the requested top in the hierarchy output.
+zero-error Surelog summary and the requested top in `uhdm-hier` output.
 
 For an existing database or extraction bundle, inspect it before producing new
 artifacts:
@@ -64,11 +72,11 @@ hashable queries against Yosys and Verilator JSON.
 
 Do not declare an EDA tool unavailable merely because it is absent on the
 host. Check the applicable `eda-run` role first. There is no RTL regex
-fallback: a failed or unavailable UHDM gate leaves RTL facts pending/failed
+fallback: a failed or unavailable UHDM gate leaves the graph pending/failed
 and blocks architecture approval. Additional UHDM script output is
-exploratory; follow its source locations back to RTL evidence. Text and
-Markdown specifications should be read directly; they do not require an
-importer.
+exploratory; follow its source locations back to canonical RTL graph entities.
+DuckDB/Parquet, NetworkX, and FAISS are rebuildable query indexes and never
+create facts.
 
 Keep parser failures visible and continue with the successful independent
 views. Never infer that one backend passed because another did. Large image

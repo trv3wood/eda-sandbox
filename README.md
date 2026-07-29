@@ -93,3 +93,10 @@ BuildKit/GHA cache，并强制单镜像小于 2 GiB（`eda-agent` 小于 500 MiB
 [`docs/cli-reference.md`](docs/cli-reference.md)。
 Agent 直接访问 UHDM Python API 与离线 Yosys/Verilator 查询的边界见
 [`docs/agent-eda-query.md`](docs/agent-eda-query.md)。
+
+提取阶段现在以 canonical property graph 为唯一事实源：DOCX/Markdown/XLSX
+生成可定位的 text units，固定 schema 的 LLM producer 生成规范实体关系，
+Surelog/UHDM 生成 RTL 实体关系，最后仅以唯一精确名称/token 建立跨源边。
+DuckDB/Parquet、NetworkX 和 FAISS 都是可重建的查询层，不参与审批哈希。配置、
+产物和离线模型准备方式见
+[`docs/cli-reference.md`](docs/cli-reference.md#graph)。

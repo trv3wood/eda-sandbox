@@ -11,10 +11,13 @@ Use the deterministic CLI for artifact production. Use agent reasoning to interp
 
 1. Read `references/workflow.md`, then inspect the project manifest and current status.
 2. Run `scripts/systemc-tlm-agent extract PROJECT --skip-tools`, then run the
-   UHDM and RTL producers and `tools finalize` as described in
-   `references/tooling.md`. RTL facts remain pending until the UHDM CLI gate
-   and official VPI exporter pass.
-3. Assign evidence IDs to claims. Use Surelog/UHDM, Verilator, and Yosys outputs as supporting structural evidence, not as replacements for the Spec or RTL. Use the offline JSON query recipes below for Yosys and Verilator. Use `references/uhdm-python.md` for additional questions after the fixed UHDM CLI gate, then confirm discoveries against source-located Spec or RTL evidence.
+   Spec, UHDM, and RTL producers and `tools finalize` as described in
+   `references/tooling.md`. The canonical graph remains pending until all
+   required producers and graph gates pass.
+3. Assign source-backed graph entity IDs to claims. Surelog/UHDM supplies the
+   canonical RTL structure; schema-constrained Spec extraction supplies
+   exact-span-grounded semantic entities. Verilator and Yosys remain
+   independent checks rather than additional truth stores.
 4. Run `scripts/systemc-tlm-agent architect PROJECT`.
 5. Complete all eight contract categories according to `references/contracts.md`. Record contradictions in `contracts/conflicts.yaml`.
 6. Write executable C++ black-box contract tests under `contracts/testbench/`.
@@ -33,7 +36,8 @@ Follow `references/roles.md`. Keep Planner, Evidence Extractor, Architect, Imple
 
 ## Modeling Policy
 
-- Treat Spec and RTL as ground truth sources. Preserve source location and digest for every extracted claim.
+- Treat Spec and RTL as ground truth sources. Preserve source location, digest,
+  and graph entity ID for every extracted claim.
 - Do not use regular-expression RTL extraction. With RTL inputs, a validated
   UHDM elaboration and UHDM-derived structure are mandatory.
 - Model at loosely timed TLM-2.0 transaction granularity unless the approved contract explicitly requires finer timing.
@@ -75,14 +79,6 @@ eda-query query BUNDLE --backend yosys --kind ports --module TOP
 eda-query query BUNDLE --backend verilator --kind statements --module TOP
 ```
 
-Record a result only after checking that it supports the stated claim:
-
-```bash
-systemc-tlm-agent evidence record PROJECT \
-  --result RESULT.json \
-  --statement "Evidence-grounded claim used by the architecture contract."
-```
-
 Treat `empty`, `unsupported`, warnings, and missing backend artifacts as
 limitations to report. The query layer never launches an EDA process; use the
 normal extraction workflow when artifacts need to be generated.
@@ -90,7 +86,8 @@ normal extraction workflow when artifacts need to be generated.
 The fixed producer flow is `surelog -parse -elabuhdm` (which emits the binary
 `.uhdm`),
 `uhdm-lint`, `uhdm-hier --line`, then the official Python VPI exporter.
-Only after those gates pass may `tools finalize` publish RTL facts.
+Only after those gates pass may `tools finalize` publish RTL graph entities
+and relationships.
 
 For an additional question against a validated
 `tools/surelog-work/slpp_all/surelog.uhdm`, write a small Python query against
@@ -108,6 +105,6 @@ scripts/eda-run --work WORK uhdm \
 ```
 
 The runner preserves raw stdout/stderr and provenance; it does not define a
-query language or reinterpret UHDM objects. UHDM output is exploratory and
-must not be passed to `evidence record`. Use its source locations to return to
-the RTL or specification and cite those existing evidence IDs in contracts.
+query language or reinterpret UHDM objects. UHDM output is exploratory. Use
+its source locations to return to canonical graph entities and cite those
+source-backed entity IDs in contracts.

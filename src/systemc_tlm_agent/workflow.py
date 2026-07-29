@@ -13,7 +13,7 @@ from .io import (
     object_digest,
     project_paths,
 )
-from .query_evidence import all_evidence
+from .graph_schema import read_jsonl
 
 
 # These eight categories are a deliberate modeling policy, not IP-specific
@@ -31,37 +31,38 @@ CONTRACT_CATEGORIES = [
 
 
 def _validate_rtl_gate(paths: dict[str, Path], errors: list[str]) -> None:
-    facts = load_json(paths["facts"] / "rtl.json")
-    if not facts.get("design_rtl"):
+    if not paths["graph_manifest"].is_file():
+        errors.append("canonical graph is missing; rerun extract")
         return
-    if facts.get("schema_version") != 2:
-        errors.append("RTL facts schema_version must be 2")
-    if facts.get("status") != "ready":
-        errors.append("RTL extraction requires a ready UHDM result")
-    if facts.get("backend") != "uhdm":
-        errors.append("RTL facts backend must be uhdm; no fallback is allowed")
-    tools = facts.get("tools", {})
-    for name in ("surelog", "uhdm_elab", "uhdm_lint", "uhdm_hier", "uhdm"):
-        if tools.get(name, {}).get("status") != "passed":
-            errors.append(f"RTL extraction gate {name} must pass")
-    if not facts.get("files"):
-        errors.append("RTL UHDM facts must contain at least one module definition")
+    graph = load_json(paths["graph_manifest"])
+    if graph.get("schema_version") != 1:
+        errors.append("canonical graph schema_version must be 1")
+    if graph.get("status") != "ready":
+        errors.append("canonical graph must be ready")
+    if graph.get("validation", {}).get("errors"):
+        errors.append("canonical graph validation must pass")
+    rtl = graph.get("producers", {}).get("rtl", {})
+    if rtl.get("status") not in {"passed", "skipped"}:
+        errors.append("RTL graph producer must pass or be explicitly skipped")
+    if rtl.get("status") == "passed":
+        entities = read_jsonl(paths["graph_entities"])
+        if not any(item.get("type") == "Module" for item in entities):
+            errors.append("RTL graph must contain at least one Module")
 
 
 def _rtl_traceability(paths: dict[str, Path]) -> list[dict[str, Any]]:
-    facts = load_json(paths["facts"] / "rtl.json")
-    modules = []
-    seen = set()
-    for file_facts in facts.get("files", []):
-        for module in file_facts.get("modules", []):
-            if module["name"] in seen:
-                continue
-            seen.add(module["name"])
-            modules.append({"rtl_module": module["name"], "evidence_ids": [module["evidence"]]})
-    return modules
+    if not paths["graph_entities"].is_file():
+        return []
+    return [
+        {"rtl_module": item["name"], "evidence_ids": [item["id"]]}
+        for item in read_jsonl(paths["graph_entities"])
+        if item.get("type") == "Module" and item.get("source_refs")
+    ]
 
 
-def create_architecture_draft(project_dir: Path) -> dict[str, Any]:
+def create_architecture_draft(
+    project_dir: Path, *, reset: bool = False
+) -> dict[str, Any]:
     paths = project_paths(project_dir)
     manifest = load_yaml(paths["manifest"])
     categories = {}
@@ -74,7 +75,7 @@ def create_architecture_draft(project_dir: Path) -> dict[str, Any]:
             "open_questions": [],
         }
     architecture = {
-        "schema_version": 3,
+        "schema_version": 4,
         "project": manifest["name"],
         "top": manifest.get("target_top", manifest.get("top")),
         "status": "draft",
@@ -102,7 +103,7 @@ def create_architecture_draft(project_dir: Path) -> dict[str, Any]:
         },
         "rtl_traceability": _rtl_traceability(paths),
     }
-    if not paths["contracts"].exists():
+    if reset or not paths["contracts"].exists():
         dump_yaml(paths["contracts"], architecture)
     if not paths["conflicts"].exists():
         dump_yaml(paths["conflicts"], {"schema_version": 1, "conflicts": []})
@@ -114,10 +115,14 @@ def validate_architecture(project_dir: Path) -> list[str]:
     architecture = load_yaml(paths["contracts"])
     errors = []
     _validate_rtl_gate(paths, errors)
-    if architecture.get("schema_version") != 3:
-        errors.append("schema_version must be 3 for approval")
+    if architecture.get("schema_version") != 4:
+        errors.append("schema_version must be 4 for graph-backed approval")
     categories = architecture.get("categories", {})
-    evidence_ids = {item["id"] for item in all_evidence(project_dir)}
+    evidence_ids = {
+        item["id"]
+        for item in read_jsonl(paths["graph_entities"])
+        if item.get("source_refs")
+    }
     for key, _ in CONTRACT_CATEGORIES:
         category = categories.get(key)
         if not isinstance(category, dict):
@@ -437,13 +442,30 @@ def approval_payload(project_dir: Path) -> dict[str, Any]:
     manifest = load_yaml(paths["manifest"])
     architecture = load_yaml(paths["contracts"])
     conflicts = load_yaml(paths["conflicts"])
-    facts = {}
-    for name in ("documents", "registers", "rtl", "summary"):
-        facts[name] = load_json(paths["facts"] / f"{name}.json")
+    graph_manifest = load_json(paths["graph_manifest"])
+    current_inputs = []
+    for item in graph_manifest.get("inputs", []):
+        path = Path(item["path"])
+        resolved = path if path.is_absolute() else project_dir / path
+        if not resolved.is_file():
+            raise ValueError(f"graph input is missing: {item['path']}")
+        current_inputs.append({
+            "path": item["path"],
+            "sha256": file_digest(resolved),
+        })
+    if current_inputs != graph_manifest.get("inputs"):
+        raise ValueError("canonical graph is stale because an input changed")
+    graph_artifacts = {}
+    for name, record in graph_manifest.get("artifacts", {}).items():
+        path = paths["graph"] / name
+        if not path.is_file() or file_digest(path) != record.get("sha256"):
+            raise ValueError(f"canonical graph artifact changed: {name}")
+        graph_artifacts[name] = record["sha256"]
     return {
         "manifest": manifest,
-        "facts": facts,
-        "evidence": all_evidence(project_dir),
+        "graph_manifest": graph_manifest,
+        "graph_artifacts": graph_artifacts,
+        "current_inputs": current_inputs,
         "architecture": architecture,
         "conflicts": conflicts,
         "contract_testbench": _contract_testbench_payload(project_dir),
@@ -457,7 +479,7 @@ def approve(project_dir: Path, *, approver: str) -> dict[str, Any]:
     paths = project_paths(project_dir)
     payload = approval_payload(project_dir)
     approval = {
-        "schema_version": 2,
+        "schema_version": 3,
         "status": "approved",
         "approver": approver,
         "approved_at": datetime.now(timezone.utc).isoformat(),
@@ -472,11 +494,14 @@ def approval_is_valid(project_dir: Path) -> tuple[bool, str]:
     if not paths["approval"].exists():
         return False, "approval.yaml is missing"
     approval = load_yaml(paths["approval"])
-    expected = object_digest(approval_payload(project_dir))
+    try:
+        expected = object_digest(approval_payload(project_dir))
+    except (FileNotFoundError, ValueError) as exc:
+        return False, f"approval is stale: {exc}"
     if approval.get("status") != "approved":
         return False, "approval status is not approved"
     if approval.get("content_sha256") != expected:
-        return False, "approval is stale because inputs, facts, or contracts changed"
+        return False, "approval is stale because inputs, graph, or contracts changed"
     validation_errors = validate_architecture(project_dir)
     if validation_errors:
         return (
@@ -491,17 +516,20 @@ def status(project_dir: Path) -> dict[str, Any]:
     paths = project_paths(project_dir)
     result: dict[str, Any] = {
         "manifest": paths["manifest"].exists(),
-        "facts": (paths["facts"] / "summary.json").exists(),
+        "graph": paths["graph_manifest"].exists(),
         "contracts": paths["contracts"].exists(),
         "approval": False,
         "approval_reason": "not checked",
         "model": (paths["model"] / "CMakeLists.txt").exists(),
         "verification": paths["verification"].exists(),
     }
-    if result["facts"]:
-        summary = load_json(paths["facts"] / "summary.json")
-        result["rtl_status"] = summary.get("rtl_status", "unknown")
-    if result["contracts"] and result["facts"]:
+    if result["graph"]:
+        graph = load_json(paths["graph_manifest"])
+        result["graph_status"] = graph.get("status", "unknown")
+        result["rtl_status"] = graph.get("producers", {}).get("rtl", {}).get(
+            "status", "unknown"
+        )
+    if result["contracts"] and result["graph"]:
         result["contract_errors"] = validate_architecture(project_dir)
     if paths["approval"].exists():
         valid, reason = approval_is_valid(project_dir)

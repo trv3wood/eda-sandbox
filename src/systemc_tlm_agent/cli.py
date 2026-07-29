@@ -15,8 +15,15 @@ from pathlib import Path
 from .extractors import extract_project
 from .generator import generate_model
 from .io import dump_yaml, project_paths
-from .query_evidence import list_evidence, record_query_evidence
 from .tool_producers import finalize_tools
+from .graph_runtime import (
+    build_faiss_index,
+    build_parquet_store,
+    lookup as graph_lookup,
+    neighbors as graph_neighbors,
+    semantic_search,
+    shortest_path,
+)
 from .verifier import verify_project
 from .workflow import (
     approval_is_valid,
@@ -68,15 +75,39 @@ def build_parser() -> argparse.ArgumentParser:
         "--tb", action="append", default=[],
         help="non-synthesizable testbench input (repeatable)",
     )
+    init.add_argument(
+        "--spec-llm-model",
+        help="OpenAI-compatible model used for source-grounded Spec extraction",
+    )
+    init.add_argument(
+        "--spec-llm-base-url",
+        help="OpenAI-compatible endpoint; prefer --spec-llm-base-url-env",
+    )
+    init.add_argument(
+        "--spec-llm-base-url-env",
+        default="SYSTEMC_TLM_LLM_BASE_URL",
+        help="environment variable containing the OpenAI-compatible endpoint",
+    )
+    init.add_argument(
+        "--spec-llm-api-key-env",
+        default="SYSTEMC_TLM_LLM_API_KEY",
+        help="environment variable containing the API key",
+    )
     init.add_argument("--backend", choices=["auto", "local", "podman"], default="auto")
 
-    extract = subparsers.add_parser("extract", help="extract evidence and design facts")
+    extract = subparsers.add_parser(
+        "extract", help="extract document units and initialize the canonical graph"
+    )
     extract.add_argument("project")
     extract.add_argument("--skip-tools", action="store_true")
 
     architect = subparsers.add_parser("architect", help="create or validate contracts")
     architect.add_argument("project")
     architect.add_argument("--validate", action="store_true")
+    architect.add_argument(
+        "--reset", action="store_true",
+        help="replace an existing architecture with a graph-backed draft",
+    )
 
     approve_parser = subparsers.add_parser("approve", help="approve complete contracts")
     approve_parser.add_argument("project")
@@ -97,23 +128,36 @@ def build_parser() -> argparse.ArgumentParser:
     status_parser = subparsers.add_parser("status", help="show workflow state")
     status_parser.add_argument("project")
 
-    evidence = subparsers.add_parser(
-        "evidence", help="record or list explicit EDA query evidence"
-    )
-    evidence_commands = evidence.add_subparsers(
-        dest="evidence_command", required=True
-    )
-    evidence_record = evidence_commands.add_parser("record")
-    evidence_record.add_argument("project")
-    evidence_record.add_argument("--result", required=True)
-    evidence_record.add_argument("--statement", required=True)
-    evidence_list = evidence_commands.add_parser("list")
-    evidence_list.add_argument("project")
-
     tools = subparsers.add_parser("tools", help="manage split EDA producer results")
     tool_commands = tools.add_subparsers(dest="tools_command", required=True)
     tools_finalize = tool_commands.add_parser("finalize")
     tools_finalize.add_argument("project")
+
+    graph = subparsers.add_parser("graph", help="build and query the canonical graph")
+    graph_commands = graph.add_subparsers(dest="graph_command", required=True)
+    graph_build = graph_commands.add_parser("build")
+    graph_build.add_argument("project")
+    graph_index = graph_commands.add_parser("index")
+    graph_index.add_argument("project")
+    graph_search = graph_commands.add_parser("search")
+    graph_search.add_argument("project")
+    graph_search.add_argument("--query", required=True)
+    graph_search.add_argument("--scope", choices=["chunks", "entities"], required=True)
+    graph_search.add_argument("--top-k", type=int, default=10)
+    graph_lookup_parser = graph_commands.add_parser("lookup")
+    graph_lookup_parser.add_argument("project")
+    graph_lookup_parser.add_argument("--name", required=True)
+    graph_lookup_parser.add_argument("--type")
+    graph_neighbors_parser = graph_commands.add_parser("neighbors")
+    graph_neighbors_parser.add_argument("project")
+    graph_neighbors_parser.add_argument("--id", required=True)
+    graph_neighbors_parser.add_argument("--depth", type=int, default=1)
+    graph_neighbors_parser.add_argument("--relation")
+    graph_path = graph_commands.add_parser("path")
+    graph_path.add_argument("project")
+    graph_path.add_argument("--from", dest="source_id", required=True)
+    graph_path.add_argument("--to", dest="target_id", required=True)
+    graph_path.add_argument("--max-depth", type=int, default=8)
     return parser
 
 
@@ -144,6 +188,17 @@ def command_init(args: argparse.Namespace) -> dict:
         },
         "backend": args.backend,
     }
+    if getattr(args, "spec_llm_model", None):
+        manifest["graph"] = {
+            "spec_extraction": {
+                "provider": "openai-compatible",
+                "model": args.spec_llm_model,
+                "base_url": getattr(args, "spec_llm_base_url", None),
+                "base_url_env": args.spec_llm_base_url_env,
+                "api_key_env": args.spec_llm_api_key_env,
+                "batch_max_chars": 24000,
+            }
+        }
     dump_yaml(paths["manifest"], manifest)
     return {"manifest": str(paths["manifest"])}
 
@@ -169,7 +224,7 @@ def command_run(args: argparse.Namespace) -> tuple[dict, int]:
         }, 2
     valid, reason = approval_is_valid(project_dir)
     if not valid:
-        # Approval covers source inputs, extracted facts, contracts, and
+        # Approval covers source inputs, the canonical graph, contracts, and
         # conflict resolutions. Editing any of them invalidates the hash.
         return {
             "stage": "approval_gate",
@@ -196,7 +251,7 @@ def main(argv: list[str] | None = None) -> int:
             result = (
                 {"errors": validate_architecture(project_dir)}
                 if args.validate
-                else create_architecture_draft(project_dir)
+                else create_architecture_draft(project_dir, reset=args.reset)
             )
         elif args.command == "approve":
             result = approve(project_dir, approver=args.approver)
@@ -210,15 +265,38 @@ def main(argv: list[str] | None = None) -> int:
             return returncode
         elif args.command == "status":
             result = status(project_dir)
-        elif args.command == "evidence":
-            if args.evidence_command == "record":
-                result = record_query_evidence(
-                    project_dir, Path(args.result).resolve(), statement=args.statement
-                )
-            else:
-                result = list_evidence(project_dir)
         elif args.command == "tools":
             result = finalize_tools(project_dir)
+        elif args.command == "graph":
+            if args.graph_command == "build":
+                result = build_parquet_store(project_dir)
+            elif args.graph_command == "index":
+                result = build_faiss_index(project_dir)
+            elif args.graph_command == "search":
+                result = semantic_search(
+                    project_dir,
+                    query=args.query,
+                    scope=args.scope,
+                    top_k=args.top_k,
+                )
+            elif args.graph_command == "lookup":
+                result = graph_lookup(
+                    project_dir, name=args.name, entity_type=args.type
+                )
+            elif args.graph_command == "neighbors":
+                result = graph_neighbors(
+                    project_dir,
+                    entity_id=args.id,
+                    depth=args.depth,
+                    relation_type=args.relation,
+                )
+            else:
+                result = shortest_path(
+                    project_dir,
+                    source_id=args.source_id,
+                    target_id=args.target_id,
+                    max_depth=args.max_depth,
+                )
         else:
             parser.error(f"unknown command: {args.command}")
             return 2

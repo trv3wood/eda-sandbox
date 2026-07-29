@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -163,7 +164,7 @@ class UhdmProducerTest(unittest.TestCase):
     @patch("systemc_tlm_agent.tool_producers._version", return_value="1.84")
     @patch("systemc_tlm_agent.tool_producers.export_uhdm_structure")
     @patch("systemc_tlm_agent.tool_producers._run")
-    def test_finalize_publishes_portable_uhdm_facts(
+    def test_finalize_publishes_portable_uhdm_graph(
         self, run, export, _version
     ) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -208,12 +209,16 @@ class UhdmProducerTest(unittest.TestCase):
 
             finalize_tools(project)
 
-            facts = load_json(paths["facts"] / "rtl.json")
-            self.assertEqual(facts["status"], "ready")
-            self.assertEqual(facts["backend"], "uhdm")
-            self.assertEqual(facts["files"][0]["path"], "top.sv")
-            self.assertEqual(facts["files"][0]["modules"][0]["name"], "top")
-            self.assertNotIn("/workspace/", str(facts["top_modules"]))
+            manifest = load_json(paths["graph_manifest"])
+            entities = [
+                json.loads(line)
+                for line in paths["graph_entities"].read_text().splitlines()
+                if line.strip()
+            ]
+            self.assertEqual(manifest["status"], "ready")
             self.assertEqual(
-                len(paths["evidence"].read_text().splitlines()), 1
+                manifest["producers"]["cross_source"]["status"], "passed"
             )
+            modules = [item for item in entities if item["type"] == "Module"]
+            self.assertEqual([item["name"] for item in modules], ["top"])
+            self.assertNotIn("/workspace/", str(modules))
