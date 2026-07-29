@@ -1,22 +1,30 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
+from dataclasses import asdict
 from pathlib import Path
-from unittest.mock import patch
 
 from systemc_tlm_agent.cli import command_init
-from systemc_tlm_agent.extractors import extract_project, run_eda_tools
+from systemc_tlm_agent.extractors import _evidence, extract_project
 from systemc_tlm_agent.generator import generate_model
-from systemc_tlm_agent.io import dump_yaml, load_json, load_yaml, project_paths
+from systemc_tlm_agent.io import (
+    dump_json,
+    dump_yaml,
+    load_json,
+    load_yaml,
+    object_digest,
+    project_paths,
+)
 from systemc_tlm_agent.workflow import (
     CONTRACT_CATEGORIES,
+    approval_payload,
     approval_is_valid,
     approve,
     create_architecture_draft,
     validate_architecture,
 )
-
 
 class Args:
     backend = "local"
@@ -25,6 +33,61 @@ class Args:
 
 
 class WorkflowTest(unittest.TestCase):
+    @staticmethod
+    def _publish_uhdm_fixture(project: Path, module_name: str) -> str:
+        paths = project_paths(project)
+        rtl = load_json(paths["facts"] / "rtl.json")
+        source = Path(rtl["design_rtl"][0])
+        evidence = _evidence(
+            kind="rtl",
+            path=source,
+            project_dir=project,
+            locator=f"line:1/module:{module_name}",
+            text=f"UHDM module definition {module_name}",
+            extractor="uhdm-python-vpi/1",
+        )
+        tools = {
+            name: {"status": "passed"}
+            for name in (
+                "surelog",
+                "uhdm_elab",
+                "uhdm_lint",
+                "uhdm_hier",
+                "uhdm",
+                "verilator",
+                "yosys",
+            )
+        }
+        rtl.update(
+            {
+                "schema_version": 2,
+                "status": "ready",
+                "backend": "uhdm",
+                "files": [
+                    {
+                        "path": str(source),
+                        "modules": [
+                            {
+                                "name": module_name,
+                                "definition": f"work@{module_name}",
+                                "line": 1,
+                                "ports": [],
+                                "parameters": [],
+                                "instances": [],
+                                "evidence": evidence.id,
+                            }
+                        ],
+                    }
+                ],
+                "tools": tools,
+            }
+        )
+        dump_json(paths["facts"] / "rtl.json", rtl)
+        paths["evidence"].write_text(
+            json.dumps(asdict(evidence), sort_keys=True) + "\n", encoding="utf-8"
+        )
+        return evidence.id
+
     @staticmethod
     def _write_contract_testbench(project: Path, scenario_id: str, test_id: str) -> None:
         root = project_paths(project)["contract_testbench"]
@@ -91,70 +154,6 @@ class WorkflowTest(unittest.TestCase):
             }
         )
 
-    @patch("systemc_tlm_agent.extractors._run_tool")
-    def test_eda_commands_support_current_verilator_and_spaced_paths(
-        self, run_tool
-    ) -> None:
-        run_tool.return_value = {"status": "passed"}
-        project = Path("/tmp/project")
-        rtl = project / "Verilog Gen/design.sv"
-        testbench = project / "Verilog Gen/design_test.sv"
-        run_eda_tools(
-            project_dir=project,
-            rtl_files=[rtl],
-            testbench_files=[testbench],
-            top="TopModule",
-            tools_dir=project / "tools",
-        )
-        commands = [call.args[0] for call in run_tool.call_args_list]
-        self.assertIn(str(testbench), commands[0])
-        self.assertIn("-elabuhdm", commands[0])
-        self.assertEqual(commands[0][commands[0].index("-top") + 1], "TopModule")
-        self.assertIn("--json-only", commands[1])
-        self.assertNotIn("--xml-only", commands[1])
-        self.assertNotIn(str(testbench), commands[1])
-        self.assertIn(
-            'read_verilog -sv "/tmp/project/Verilog Gen/design.sv"',
-            commands[2][2],
-        )
-        self.assertNotIn(str(testbench), commands[2][2])
-
-    @patch("systemc_tlm_agent.extractors._run_tool")
-    def test_eda_tools_preserve_native_uhdm_database(self, run_tool) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            project = Path(temporary)
-            tools = project / "tools"
-            rtl = project / "design.sv"
-            rtl.write_text("module top; endmodule\n", encoding="utf-8")
-
-            def execute(command, cwd, log):
-                if command[0] == "surelog":
-                    database = cwd / "slpp_all/surelog.uhdm"
-                    database.parent.mkdir(parents=True)
-                    database.write_bytes(b"native uhdm")
-                return {"status": "passed", "returncode": 0}
-
-            run_tool.side_effect = execute
-            result = run_eda_tools(
-                project_dir=project,
-                rtl_files=[rtl],
-                testbench_files=[],
-                top="top",
-                tools_dir=tools,
-            )
-
-            self.assertEqual(result["uhdm"]["status"], "passed")
-            self.assertEqual(result["uhdm"]["database_size"], 11)
-            self.assertTrue(
-                Path(result["uhdm"]["database"]).is_file()
-            )
-            commands = [call.args[0] for call in run_tool.call_args_list]
-            self.assertEqual(
-                [command[0] for command in commands],
-                ["surelog", "verilator", "yosys"],
-            )
-            self.assertFalse((tools / "uhdm.json").exists())
-
     def test_extract_allows_missing_rtl(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             project = Path(temporary)
@@ -173,7 +172,7 @@ class WorkflowTest(unittest.TestCase):
 
             rtl = load_json(project_paths(project)["facts"] / "rtl.json")
             self.assertEqual(rtl["files"], [])
-            for tool in ("surelog", "verilator", "yosys"):
+            for tool in ("surelog", "uhdm_elab", "uhdm_hier", "verilator", "yosys"):
                 self.assertEqual(rtl["tools"][tool]["status"], "skipped")
                 self.assertEqual(
                     rtl["tools"][tool]["reason"], "no RTL inputs were provided"
@@ -198,15 +197,14 @@ class WorkflowTest(unittest.TestCase):
             command_init(args)
 
             summary = extract_project(project, run_tools=False)
-            self.assertEqual(summary["rtl_module_count"], 8)
+            self.assertEqual(summary["rtl_file_count"], 8)
+            self.assertEqual(summary["rtl_status"], "pending")
+            evidence_id = self._publish_uhdm_fixture(project, "packet_engine_top")
             create_architecture_draft(project)
             self.assertTrue(validate_architecture(project))
 
             paths = project_paths(project)
             architecture = load_yaml(paths["contracts"])
-            evidence_id = load_json(paths["facts"] / "rtl.json")["files"][0]["modules"][0][
-                "evidence"
-            ]
             for key, _ in CONTRACT_CATEGORIES:
                 architecture["categories"][key].update(
                     {
@@ -241,6 +239,21 @@ class WorkflowTest(unittest.TestCase):
                 (paths["model"] / "include" / "packet_service.hpp").read_text(),
             )
 
+            # Even a matching approval hash cannot bypass a newly introduced
+            # architecture gate (for example, legacy facts without UHDM).
+            rtl_facts = load_json(paths["facts"] / "rtl.json")
+            rtl_facts["status"] = "pending"
+            dump_json(paths["facts"] / "rtl.json", rtl_facts)
+            approval = load_yaml(paths["approval"])
+            approval["content_sha256"] = object_digest(approval_payload(project))
+            dump_yaml(paths["approval"], approval)
+            valid, reason = approval_is_valid(project)
+            self.assertFalse(valid)
+            self.assertIn("current architecture gates fail", reason)
+
+            rtl_facts["status"] = "ready"
+            dump_json(paths["facts"] / "rtl.json", rtl_facts)
+            approve(project, approver="unit-test")
             architecture["categories"]["functional_intent"]["summary"] = "changed"
             dump_yaml(paths["contracts"], architecture)
             self.assertFalse(approval_is_valid(project)[0])
@@ -282,10 +295,10 @@ class WorkflowTest(unittest.TestCase):
             args.rtl = ["top.sv"]
             command_init(args)
             extract_project(project, run_tools=False)
+            evidence_id = self._publish_uhdm_fixture(project, "handoff_gate")
             create_architecture_draft(project)
             paths = project_paths(project)
             architecture = load_yaml(paths["contracts"])
-            evidence_id = load_json(paths["facts"] / "rtl.json")["files"][0]["modules"][0]["evidence"]
             for key, _ in CONTRACT_CATEGORIES:
                 architecture["categories"][key].update(
                     status="complete",
@@ -307,6 +320,26 @@ class WorkflowTest(unittest.TestCase):
             self.assertIn(
                 "tlm_handoff.channels[1].from: unknown functional module endpoint",
                 validate_architecture(project),
+            )
+
+    def test_pending_rtl_blocks_architecture_approval(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            (project / "top.sv").write_text("module top; endmodule\n")
+            args = Args()
+            args.project = str(project)
+            args.name = "pending-uhdm"
+            args.top = "top"
+            args.rtl = ["top.sv"]
+            command_init(args)
+            extract_project(project, run_tools=False)
+            create_architecture_draft(project)
+
+            errors = validate_architecture(project)
+
+            self.assertIn("RTL extraction requires a ready UHDM result", errors)
+            self.assertIn(
+                "RTL facts backend must be uhdm; no fallback is allowed", errors
             )
 
 

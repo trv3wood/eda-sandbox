@@ -4,6 +4,8 @@ Use local tools when they are available. Otherwise route commands through the
 small role-specific images with the repository wrapper:
 
 ```bash
+scripts/eda-run --work WORK agent \
+  systemc-tlm-agent extract /workspace/PROJECT --skip-tools
 scripts/eda-run --work WORK agent systemc-tlm-agent status /workspace/PROJECT
 scripts/eda-run --work WORK uhdm eda-uhdm-produce /workspace/PROJECT
 scripts/eda-run --work WORK rtl eda-rtl-produce /workspace/PROJECT
@@ -24,9 +26,21 @@ scripts/eda-run --work WORK scc \
 
 Structural extraction uses:
 
-- Surelog/UHDM for elaborated SystemVerilog structure when supported.
+- Surelog/UHDM as the mandatory source of elaborated SystemVerilog structure.
 - Verilator JSON for an independent parsed hierarchy.
 - Yosys JSON for synthesizable hierarchy and connectivity.
+
+The UHDM producer always runs this fixed sequence:
+
+1. `surelog ... -parse -elabuhdm -d uhdm`
+2. `uhdm-dump --elab surelog.uhdm`
+3. `uhdm-lint surelog.uhdm`
+4. `uhdm-hier surelog.uhdm --line`
+5. the official Python VPI exporter
+
+Do not trust exit code alone: UHDM 1.84 command-line tools return success for
+some usage and missing-file paths. The producer also requires the documented
+restore/elaboration markers and the requested top in the hierarchy output.
 
 For an existing database or extraction bundle, inspect it before producing new
 artifacts:
@@ -47,10 +61,10 @@ export/query/server protocol. Prefer `eda-query` for deterministic, cheap,
 hashable queries against Yosys and Verilator JSON.
 
 Do not declare an EDA tool unavailable merely because it is absent on the
-host. Check the applicable `eda-run` role first. Regex RTL extraction is only
-a fallback and evidence locator: do not substitute it for an available UHDM,
-Verilator, or Yosys view. UHDM script output is exploratory, not a generated
-evidence record; follow its source locations back to RTL evidence. Text and
+host. Check the applicable `eda-run` role first. There is no RTL regex
+fallback: a failed or unavailable UHDM gate leaves RTL facts pending/failed
+and blocks architecture approval. Additional UHDM script output is
+exploratory; follow its source locations back to RTL evidence. Text and
 Markdown specifications should be read directly; they do not require an
 importer.
 

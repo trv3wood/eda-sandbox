@@ -1,9 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
-import shutil
-import subprocess
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Any
@@ -41,13 +38,17 @@ def _evidence(
     import hashlib
 
     normalized = " ".join(text.split())
-    key = f"{kind}\0{path.resolve()}\0{locator}\0{normalized}".encode()
+    source_path = relative_to_project(project_dir, path)
+    source_digest = file_digest(path)
+    key = (
+        f"{kind}\0{source_path}\0{source_digest}\0{locator}\0{normalized}".encode()
+    )
     evidence_id = "ev-" + hashlib.sha256(key).hexdigest()[:16]
     return Evidence(
         id=evidence_id,
         source_kind=kind,
-        source_path=relative_to_project(project_dir, path),
-        source_digest=file_digest(path),
+        source_path=source_path,
+        source_digest=source_digest,
         locator=locator,
         text=normalized,
         extractor=extractor,
@@ -180,184 +181,6 @@ def extract_xlsx(path: Path, project_dir: Path) -> tuple[list[Evidence], dict[st
     return evidence, {"path": str(path), "sheets": sheets}
 
 
-# Regex extraction is only a lightweight, always-available hierarchy fallback.
-# Surelog/UHDM, Verilator, and Yosys provide stronger parser/elaboration views.
-MODULE_RE = re.compile(
-    r"\bmodule\s+(?P<name>[A-Za-z_][A-Za-z0-9_$]*)"
-    r"(?:\s*#\s*\((?P<params>.*?)\))?\s*\((?P<ports>.*?)\)\s*;",
-    re.DOTALL,
-)
-INSTANCE_RE = re.compile(
-    r"^\s*(?P<type>[A-Za-z_][A-Za-z0-9_$]*)"
-    r"(?:\s*#\s*\(.*?\))?\s+(?P<name>[A-Za-z_][A-Za-z0-9_$]*)\s*\(",
-    re.MULTILINE | re.DOTALL,
-)
-
-
-def _line_number(text: str, offset: int) -> int:
-    return text.count("\n", 0, offset) + 1
-
-
-def extract_rtl(path: Path, project_dir: Path) -> tuple[list[Evidence], dict[str, Any]]:
-    text = path.read_text(encoding="utf-8", errors="replace")
-    evidence: list[Evidence] = []
-    modules = []
-    for match in MODULE_RE.finditer(text):
-        name = match.group("name")
-        line = _line_number(text, match.start())
-        item = _evidence(
-            kind="rtl",
-            path=path,
-            project_dir=project_dir,
-            locator=f"line:{line}/module:{name}",
-            text=match.group(0)[:1000],
-            extractor="systemc-tlm-agent-regex",
-        )
-        evidence.append(item)
-        instances = []
-        body_end = text.find("endmodule", match.end())
-        body = text[match.end() : body_end if body_end >= 0 else len(text)]
-        for instance in INSTANCE_RE.finditer(body):
-            instance_type = instance.group("type")
-            if instance_type in {
-                "if",
-                "for",
-                "while",
-                "case",
-                "assign",
-                "always",
-                "always_ff",
-                "always_comb",
-            }:
-                continue
-            instances.append({"type": instance_type, "name": instance.group("name")})
-        modules.append(
-            {
-                "name": name,
-                "line": line,
-                "evidence": item.id,
-                "instances": instances,
-                "ports_text": " ".join((match.group("ports") or "").split()),
-                "parameters_text": " ".join((match.group("params") or "").split()),
-            }
-        )
-    return evidence, {"path": str(path), "modules": modules}
-
-
-def _run_tool(command: list[str], cwd: Path, log_path: Path) -> dict[str, Any]:
-    executable = shutil.which(command[0])
-    if not executable:
-        return {"status": "unavailable", "command": command}
-    result = subprocess.run(
-        command,
-        cwd=cwd,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        check=False,
-    )
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_path.write_text(result.stdout, encoding="utf-8")
-    return {
-        "status": "passed" if result.returncode == 0 else "failed",
-        "returncode": result.returncode,
-        "command": command,
-        "log": str(log_path),
-    }
-
-
-def run_eda_tools(
-    *,
-    project_dir: Path,
-    rtl_files: list[Path],
-    testbench_files: list[Path],
-    top: str,
-    tools_dir: Path,
-    compile_sources: list[Path] | None = None,
-    include_dirs: list[Path] | None = None,
-    defines: list[str] | None = None,
-) -> dict[str, Any]:
-    # The command templates are tool integration policy. RTL file lists and the
-    # top module come from manifest.yaml rather than being hard-coded.
-    relative_rtl = [str(path) for path in rtl_files]
-    relative_testbench = [str(path) for path in testbench_files]
-    semantic_sources = [
-        str(path)
-        for path in (
-            compile_sources
-            if compile_sources is not None
-            else [*rtl_files, *testbench_files]
-        )
-    ]
-    surelog_work = tools_dir / "surelog-work"
-    surelog_work.mkdir(parents=True, exist_ok=True)
-    surelog_command = [
-        "surelog",
-        *semantic_sources,
-        *(f"-I{path}" for path in (include_dirs or [])),
-        *(f"-D{value}" for value in (defines or [])),
-        "-top",
-        top,
-        "-parse",
-        "-elabuhdm",
-        "-d",
-        "uhdm",
-    ]
-    surelog = _run_tool(
-        surelog_command,
-        surelog_work,
-        tools_dir / "surelog.log",
-    )
-    uhdm_path = surelog_work / "slpp_all" / "surelog.uhdm"
-    if surelog["status"] == "passed" and uhdm_path.is_file():
-        uhdm = {
-            "status": "passed",
-            "database": str(uhdm_path),
-            "database_sha256": file_digest(uhdm_path),
-            "database_size": uhdm_path.stat().st_size,
-        }
-    else:
-        uhdm = {
-            "status": "skipped",
-            "reason": (
-                "Surelog did not produce a UHDM database"
-                if surelog["status"] == "passed"
-                else "Surelog failed"
-            ),
-            "database": str(uhdm_path),
-        }
-    verilator = _run_tool(
-        [
-            "verilator",
-            "--json-only",
-            "--top-module",
-            top,
-            "--json-only-output",
-            str(tools_dir / "verilator.json"),
-            *relative_rtl,
-        ],
-        project_dir,
-        tools_dir / "verilator.log",
-    )
-    yosys_script = (
-        "read_verilog -sv "
-        + " ".join(json.dumps(path) for path in relative_rtl)
-        + f"; hierarchy -check -top {top}; write_json "
-        + json.dumps(str(tools_dir / "yosys.json"))
-    )
-    yosys = _run_tool(
-        ["yosys", "-p", yosys_script],
-        project_dir,
-        tools_dir / "yosys.log",
-    )
-    return {
-        "surelog": surelog,
-        "uhdm": uhdm,
-        "verilator": verilator,
-        "yosys": yosys,
-    }
-
-
 def extract_project(project_dir: Path, *, run_tools: bool = True) -> dict[str, Any]:
     """Extract immutable, source-located facts from manifest inputs."""
     paths = project_paths(project_dir)
@@ -386,7 +209,6 @@ def extract_project(project_dir: Path, *, run_tools: bool = True) -> dict[str, A
         manifest.get("testbench", []),
         directory_suffixes={".v", ".sv"},
     )
-    all_rtl_files = [*rtl_files, *testbench_files]
     compile_config = manifest.get("eda_compile", {})
     if compile_config and not isinstance(compile_config, dict):
         raise ValueError("manifest eda_compile must be a mapping")
@@ -407,12 +229,6 @@ def extract_project(project_dir: Path, *, run_tools: bool = True) -> dict[str, A
         isinstance(value, str) and value for value in defines
     ):
         raise ValueError("manifest eda_compile.defines must be a list of strings")
-    rtl_units = []
-    for path in all_rtl_files:
-        evidence, facts = extract_rtl(path, project_dir)
-        all_evidence.extend(evidence)
-        rtl_units.append(facts)
-
     paths["facts"].mkdir(parents=True, exist_ok=True)
     dump_json(paths["facts"] / "documents.json", {"documents": documents})
     dump_json(paths["facts"] / "registers.json", {"workbooks": registers})
@@ -421,36 +237,35 @@ def extract_project(project_dir: Path, *, run_tools: bool = True) -> dict[str, A
     if not target_top:
         raise ValueError("manifest requires target_top (or legacy top)")
     rtl_facts = {
+        "schema_version": 2,
+        "status": "pending" if rtl_files else "missing",
+        "backend": None,
         "target_top": target_top,
         "reference_top": reference_top,
         "top": target_top,
-        "files": rtl_units,
+        "files": [],
         "design_rtl": [str(path) for path in rtl_files],
         "testbench": [str(path) for path in testbench_files],
-        "tools": (
-            run_eda_tools(
-                project_dir=project_dir,
-                rtl_files=rtl_files,
-                testbench_files=testbench_files,
-                top=reference_top,
-                tools_dir=paths["tools"],
-                compile_sources=compile_sources,
-                include_dirs=include_dirs,
-                defines=defines,
-            )
-            if run_tools and rtl_files
-            else {
-                tool: {
-                    "status": "skipped",
-                    "reason": (
-                        "no RTL inputs were provided"
-                        if not rtl_files
-                        else "EDA tool execution was disabled"
-                    ),
-                }
-                for tool in ("surelog", "uhdm", "verilator", "yosys")
+        "compile_sources": [str(path) for path in compile_sources],
+        "tools": {
+            tool: {
+                "status": "skipped",
+                "reason": (
+                    "no RTL inputs were provided"
+                    if not rtl_files
+                    else "EDA producer execution is pending"
+                ),
             }
-        ),
+            for tool in (
+                "surelog",
+                "uhdm_elab",
+                "uhdm_lint",
+                "uhdm_hier",
+                "uhdm",
+                "verilator",
+                "yosys",
+            )
+        },
     }
     dump_json(paths["facts"] / "rtl.json", rtl_facts)
     with paths["evidence"].open("w", encoding="utf-8") as stream:
@@ -464,8 +279,16 @@ def extract_project(project_dir: Path, *, run_tools: bool = True) -> dict[str, A
         "rtl_available": bool(rtl_files),
         "rtl_file_count": len(rtl_files),
         "testbench_file_count": len(testbench_files),
-        "rtl_module_count": sum(len(unit["modules"]) for unit in rtl_units),
+        "rtl_module_count": 0,
+        "rtl_status": rtl_facts["status"],
         "missing_inputs": [] if rtl_files else ["rtl"],
     }
     dump_json(paths["facts"] / "summary.json", summary)
+    if run_tools and rtl_files:
+        from .tool_producers import finalize_tools, produce_rtl, produce_uhdm
+
+        produce_uhdm(project_dir)
+        produce_rtl(project_dir)
+        finalize_tools(project_dir)
+        return load_json(paths["facts"] / "summary.json")
     return summary

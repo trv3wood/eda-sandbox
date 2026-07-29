@@ -1,9 +1,11 @@
 # Direct UHDM Python Queries
 
-Use the official UHDM Python binding when
-`tools/surelog-work/slpp_all/surelog.uhdm` already exists. Write the smallest
-script that answers the current modeling question. Do not build a generic
-object model, exporter, query DSL, or regex reconstruction.
+The standard producer uses the official UHDM Python binding only after
+`uhdm-dump --elab`, `uhdm-lint`, and `uhdm-hier --line` pass. For additional
+questions, use the binding only against that validated
+`tools/surelog-work/slpp_all/surelog.uhdm`. Write the smallest script that
+answers the current modeling question. Do not build a second generic object
+model, query DSL, or regex reconstruction.
 
 The current image pins UHDM v1.84. Use capability checks for optional
 relations rather than depending on a newer release or emulating a missing

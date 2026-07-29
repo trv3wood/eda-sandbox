@@ -10,8 +10,11 @@ Use the deterministic CLI for artifact production. Use agent reasoning to interp
 ## Workflow
 
 1. Read `references/workflow.md`, then inspect the project manifest and current status.
-2. Run `scripts/systemc-tlm-agent extract PROJECT`.
-3. Assign evidence IDs to claims. Use Surelog/UHDM, Verilator, and Yosys outputs as supporting structural evidence, not as replacements for the Spec or RTL. Use the offline JSON query recipes below for Yosys and Verilator. Use `references/uhdm-python.md` for an existing UHDM database, then confirm discoveries against source-located Spec or RTL evidence.
+2. Run `scripts/systemc-tlm-agent extract PROJECT --skip-tools`, then run the
+   UHDM and RTL producers and `tools finalize` as described in
+   `references/tooling.md`. RTL facts remain pending until the UHDM CLI gate
+   and official VPI exporter pass.
+3. Assign evidence IDs to claims. Use Surelog/UHDM, Verilator, and Yosys outputs as supporting structural evidence, not as replacements for the Spec or RTL. Use the offline JSON query recipes below for Yosys and Verilator. Use `references/uhdm-python.md` for additional questions after the fixed UHDM CLI gate, then confirm discoveries against source-located Spec or RTL evidence.
 4. Run `scripts/systemc-tlm-agent architect PROJECT`.
 5. Complete all eight contract categories according to `references/contracts.md`. Record contradictions in `contracts/conflicts.yaml`.
 6. Write executable C++ black-box contract tests under `contracts/testbench/`.
@@ -31,6 +34,8 @@ Follow `references/roles.md`. Keep Planner, Evidence Extractor, Architect, Imple
 ## Modeling Policy
 
 - Treat Spec and RTL as ground truth sources. Preserve source location and digest for every extracted claim.
+- Do not use regular-expression RTL extraction. With RTL inputs, a validated
+  UHDM elaboration and UHDM-derived structure are mandatory.
 - Model at loosely timed TLM-2.0 transaction granularity unless the approved contract explicitly requires finer timing.
 - Isolate minres-SCC usage behind adapters so the functional model remains testable with standard SystemC.
 - Represent latency, queues, arbitration, backpressure, errors, register side effects, interrupts, and completion conditions explicitly when supported by evidence.
@@ -82,8 +87,13 @@ Treat `empty`, `unsupported`, warnings, and missing backend artifacts as
 limitations to report. The query layer never launches an EDA process; use the
 normal extraction workflow when artifacts need to be generated.
 
-For `tools/surelog-work/slpp_all/surelog.uhdm`, write a small Python query
-against the official `uhdm` binding and execute it with the thin runner:
+The fixed producer flow is `surelog -elabuhdm`, `uhdm-dump --elab`,
+`uhdm-lint`, `uhdm-hier --line`, then the official Python VPI exporter.
+Only after those gates pass may `tools finalize` publish RTL facts.
+
+For an additional question against a validated
+`tools/surelog-work/slpp_all/surelog.uhdm`, write a small Python query against
+the official `uhdm` binding and execute it with the thin runner:
 
 ```bash
 mkdir -p WORK/audits/uhdm-query
