@@ -96,7 +96,6 @@ module/instance/port/signal/parameter/package 实体和确定性关系。不存�
 scripts/systemc-tlm-agent extract PROJECT --skip-tools
 scripts/eda-run --work WORK agent eda-spec-produce /workspace/PROJECT
 scripts/eda-run --work WORK uhdm eda-uhdm-produce /workspace/PROJECT
-scripts/eda-run --work WORK rtl  eda-rtl-produce  /workspace/PROJECT
 scripts/eda-run --work WORK agent \
   systemc-tlm-agent tools finalize /workspace/PROJECT
 ```
@@ -105,8 +104,8 @@ scripts/eda-run --work WORK agent \
 数据库/结构摘要、producer 输入摘要和图引用完整性全部通过，且 `tools finalize` 发布
 `status: ready` 后，architecture 才能批准。任一步失败都会保留失败状态并阻断审批。
 
-`eda-query` 只查询已有的 Yosys/Verilator JSON。UHDM Python 脚本输出仅用于
-探索和定位；合同只能引用 canonical graph 中带 source span 的实体。
+UHDM Python 脚本输出仅用于探索和定位；合同只能引用 canonical graph 中带
+source span 的实体。
 
 ## Architecture v4、合同测试与 Implementer handoff
 
@@ -154,7 +153,7 @@ operation 规则保留为实现提示。生成器不自动连接 channel，也�
 4. 使用相同 stimulus 和明确 normalization/comparison adapter 的 RTL differential test。
 
 `verify --backend auto` 在主机存在 `/opt/scc` 时走 local；否则调用 Compose 的 `eda-scc`
-服务。当前 differential test 没有通用 adapter，因此即使 Verilator 已成功，也会明确报告
+服务。当前 differential test 没有通用 stimulus/normalization adapter，因此会明确报告
 `blocked`，而不是宣称 RTL equivalence。
 
 ## 维护约束

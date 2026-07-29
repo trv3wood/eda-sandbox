@@ -8,7 +8,7 @@ from typing import Any
 
 import json
 
-from .io import dump_json, load_json, load_yaml, project_paths
+from .io import dump_json, load_yaml, project_paths
 
 
 def _execute(command: list[str], cwd: Path) -> dict[str, Any]:
@@ -156,17 +156,11 @@ def verify_project(project_dir: Path, *, backend: str = "auto") -> dict[str, Any
         if build["returncode"] == 0
         else {"status": "skipped", "returncode": 1, "output": ""}
     )
-    graph = load_json(paths["graph_manifest"])
-    verilator_status = graph.get("tools", {}).get("verilator", {}).get("status")
     differential = {
-        # Parsing/elaborating RTL alone is not equivalence checking. Keep this
-        # blocked until a project supplies shared stimuli and normalization.
+        # Keep this blocked until a project supplies shared stimuli and a
+        # normalization/comparison adapter.
         "status": "blocked",
-        "reason": (
-            "reference RTL elaborated; transaction stimulus adapter is not configured"
-            if verilator_status == "passed"
-            else "Verilator reference model is unavailable"
-        ),
+        "reason": "transaction stimulus and normalization adapter is not configured",
     }
     report = {
         "backend": "local",

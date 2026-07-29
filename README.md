@@ -2,10 +2,9 @@
 
 Ubuntu 24.04 工具链按职责拆成四个独立镜像：
 
-- `eda-agent`：工作流和离线 JSON 查询；不含 EDA 编译器。
+- `eda-agent`：工作流和图/规范工具；不含 EDA 编译器。
 - `eda-uhdm`：Surelog 和 UHDM Python binding，生成原生数据库并运行
   Agent 编写的直接 Python 查询。
-- `eda-rtl`：Verilator 和 Yosys。
 - `eda-scc`：SystemC/SCC 编译与验证；Conan 缓存只存在于 builder。
 - `eda-enterprise`：Rocky Linux 8，用于 RHEL 系列兼容性检查。
 
@@ -18,17 +17,17 @@ wrapper 在临时 builder 中生成；Surelog 本身不再编译。商业 EDA �
 使用 Docker：
 
 ```bash
-docker compose build eda-agent eda-rtl
+docker compose build eda-agent eda-uhdm
 docker compose run --rm eda-agent scripts/regress.sh
-docker compose run --rm eda-rtl scripts/regress.sh
+docker compose run --rm eda-uhdm scripts/regress.sh
 ```
 
 使用 Podman（本环境推荐）：
 
 ```bash
-podman-compose build eda-agent eda-rtl
+podman-compose build eda-agent eda-uhdm
 podman-compose run --rm eda-agent scripts/regress.sh
-podman-compose run --rm eda-rtl scripts/regress.sh
+podman-compose run --rm eda-uhdm scripts/regress.sh
 ```
 
 SCC 构建耗时较长，通常从 GitHub Container Registry 拉取 CI 产物；它仅在
@@ -37,13 +36,12 @@ UHDM 镜像只额外编译 Python wrapper。本地只构建当前需要的轻量
 
 ```bash
 podman-compose build eda-agent
-podman-compose build eda-rtl
+podman-compose build eda-uhdm
 ```
 
 不需要记忆容器参数时，可通过宿主机 wrapper 直接调用各角色：
 
 ```bash
-scripts/eda-run rtl verilator --version
 scripts/eda-run uhdm surelog --version
 scripts/eda-run --work "$PWD" uhdm \
   eda-uhdm run /workspace/design.uhdm /workspace/query.py \
@@ -60,10 +58,8 @@ scripts/eda-run rocky --shell
 
 ```bash
 podman build -f Dockerfile.ubuntu --target agent -t eda-agent:local .
-podman build -f Dockerfile.ubuntu --target rtl-tools -t eda-rtl:local .
 podman build -f Dockerfile.rocky8 -t eda-enterprise:local .
 podman run --rm -it -v "$PWD:/workspace" eda-agent:local
-podman run --rm -it -v "$PWD:/workspace" eda-rtl:local
 podman run --rm -it -v "$PWD:/workspace" eda-enterprise
 ```
 
@@ -91,8 +87,8 @@ BuildKit/GHA cache，并强制单镜像小于 2 GiB（`eda-agent` 小于 500 MiB
 
 建模命令的职责、命令、产物和当前限制文档请参见
 [`docs/cli-reference.md`](docs/cli-reference.md)。
-Agent 直接访问 UHDM Python API 与离线 Yosys/Verilator 查询的边界见
-[`docs/agent-eda-query.md`](docs/agent-eda-query.md)。
+Agent 通过 UHDM Python API 访问已验证的 Surelog 数据库；查询脚本只用于探索，
+canonical graph 仍由固定 UHDM exporter 生成。
 
 提取阶段现在以 canonical property graph 为唯一事实源：DOCX/Markdown/XLSX
 生成可定位的 text units，固定 schema 的 LLM producer 生成规范实体关系，

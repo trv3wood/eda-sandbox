@@ -7,5 +7,3 @@ dependencies:
   - flex
   - surelog=1.84
   - uhdm=1.84
-  - verilator
-  - yosys

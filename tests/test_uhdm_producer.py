@@ -194,19 +194,6 @@ class UhdmProducerTest(unittest.TestCase):
             export.side_effect = make_structure
             produce_uhdm(project)
             paths = project_paths(project)
-            dump_json(
-                paths["tools"] / "producer-rtl.json",
-                {
-                    "schema_version": 1,
-                    "producer": "rtl",
-                    "inputs": [{"path": str(rtl), "sha256": file_digest(rtl)}],
-                    "tools": {
-                        "verilator": {"status": "passed"},
-                        "yosys": {"status": "passed"},
-                    },
-                },
-            )
-
             finalize_tools(project)
 
             manifest = load_json(paths["graph_manifest"])

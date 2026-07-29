@@ -16,8 +16,8 @@ Use the deterministic CLI for artifact production. Use agent reasoning to interp
    required producers and graph gates pass.
 3. Assign source-backed graph entity IDs to claims. Surelog/UHDM supplies the
    canonical RTL structure; schema-constrained Spec extraction supplies
-   exact-span-grounded semantic entities. Verilator and Yosys remain
-   independent checks rather than additional truth stores.
+   exact-span-grounded semantic entities. UHDM is the canonical RTL structure
+   source; exploratory queries do not create additional truth stores.
 4. Run `scripts/systemc-tlm-agent architect PROJECT`.
 5. Complete all eight contract categories according to `references/contracts.md`. Record contradictions in `contracts/conflicts.yaml`.
 6. Write executable C++ black-box contract tests under `contracts/testbench/`.
@@ -67,21 +67,8 @@ or JSON bundle before regenerating it.
 
 ## EDA Query Recipes
 
-When an extraction bundle contains `tools/yosys.json` or
-`tools/verilator.json`, inspect it through `eda-query`; do not fall back to
-regular expressions merely because a live parser executable is absent.
-Yosys and Verilator remain independent structural views.
-
-```bash
-eda-query catalog BUNDLE
-eda-query query BUNDLE --backend yosys --kind hierarchy --module TOP
-eda-query query BUNDLE --backend yosys --kind ports --module TOP
-eda-query query BUNDLE --backend verilator --kind statements --module TOP
-```
-
-Treat `empty`, `unsupported`, warnings, and missing backend artifacts as
-limitations to report. The query layer never launches an EDA process; use the
-normal extraction workflow when artifacts need to be generated.
+Treat exploratory UHDM query failures and missing artifacts as limitations to
+report; the thin runner never defines canonical graph facts.
 
 The fixed producer flow is `surelog -parse -elabuhdm` (which emits the binary
 `.uhdm`),
