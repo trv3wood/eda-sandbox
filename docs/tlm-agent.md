@@ -81,9 +81,11 @@ scripts/systemc-tlm-agent verify PROJECT --backend auto
 
 ## 事实与 EDA 工具
 
-`extract` 会读取 DOCX 段落/表格、XLSX 单元格和 RTL module/instance 的轻量 fallback，
-并为每项写入 evidence ID。默认本机还会尝试 Surelog/UHDM、Verilator、Yosys；失败和
-不可用会分别记录，不会互相掩盖。
+`extract` 会读取 DOCX 段落/表格和 XLSX 单元格，并登记 manifest 中的 RTL 输入。
+RTL 结构只接受通过固定 UHDM 流程产生的事实：Surelog 生成数据库，
+`uhdm-dump --elab` 验证恢复和 elaboration，`uhdm-lint` 检查数据库，
+`uhdm-hier --line` 验证请求的 top，最后由官方 UHDM Python VPI binding 导出
+module/port/parameter/instance 结构并生成 evidence ID。不存在文本或正则 fallback。
 
 主机没有工具时，先提取但跳过本地工具，再使用角色镜像产生独立结果：
 
@@ -94,6 +96,10 @@ scripts/eda-run --work WORK rtl  eda-rtl-produce  /workspace/PROJECT
 scripts/eda-run --work WORK agent \
   systemc-tlm-agent tools finalize /workspace/PROJECT
 ```
+
+`--skip-tools` 只产生 `status: pending` 的 RTL 清单。CLI 校验标记、top、
+数据库/结构摘要和 producer 输入摘要全部通过，且 `tools finalize` 发布
+`status: ready` 后，architecture 才能批准。任一步失败都会保留失败状态并阻断审批。
 
 `eda-query` 只查询已有的 Yosys/Verilator JSON。成功的 QueryResult 可以经
 `systemc-tlm-agent evidence record` 写入 `query-evidence.jsonl`。UHDM Python

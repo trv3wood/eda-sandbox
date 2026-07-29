@@ -41,7 +41,9 @@ testbench:
 backend: local
 ```
 
-`target_top` 是待生成的 DUT。`reference_top` 是已有的黄金 RTL 模块，供结构化 EDA 使用。Surelog 会处理设计 RTL 和测试平台源文件；Verilator 和 Yosys 仅接收设计 RTL。
+`target_top` 是待生成的 DUT。`reference_top` 是已有的黄金 RTL 模块，供结构化
+EDA 使用。Surelog 接收 `eda_compile.sources`（未配置时使用 `rtl`）以及对应的
+include directory/define；Verilator 和 Yosys 仅接收 `rtl`。
 
 ### 命令
 
@@ -59,18 +61,38 @@ scripts/systemc-tlm-agent init PROJECT \
 
 #### `extract`
 
-解析 manifest 输入，计算源文件摘要，写入证据/事实，并可选择运行 Surelog、Verilator 和 Yosys。
+解析 manifest 输入，计算源文件摘要，写入规格证据和 RTL 清单，并可选择运行
+UHDM、Verilator 和 Yosys producer。
 
 ```bash
 scripts/systemc-tlm-agent extract PROJECT
 scripts/systemc-tlm-agent extract PROJECT --skip-tools
 ```
 
-当前证据提取支持 DOCX、XLSX 和轻量级 SystemVerilog 模块/端口发现。结构化 EDA 结果记录在 `facts/rtl.json` 和 `.systemc-agent/tools/` 下。Surelog 的原生数据库保留为 `tools/surelog-work/slpp_all/surelog.uhdm`，不会再导出为仓库专用的固定 UHDM JSON。
+当前规格证据提取支持 DOCX、Markdown 和 XLSX。SystemVerilog 不再使用文本或正则
+发现模块：RTL 首先处于 `pending`，随后固定执行
+`surelog -parse -elabuhdm`、`uhdm-dump --elab`、`uhdm-lint` 和
+`uhdm-hier --line`，并通过官方 UHDM Python VPI binding 导出结构。
+只有退出状态、elaboration 日志标记、请求的 top、输入/数据库/结构摘要全部校验
+通过，`facts/rtl.json` 才会成为 `backend: uhdm, status: ready`；否则不能审批。
+Surelog 原生数据库保留在
+`tools/surelog-work/slpp_all/surelog.uhdm`，确定性结构保留在
+`tools/uhdm-structure.json`。
+
+`--skip-tools` 只登记输入并留下 `pending` 状态，适合随后在角色镜像中分别执行：
+
+```bash
+scripts/eda-run --work WORK uhdm eda-uhdm-produce /workspace/PROJECT
+scripts/eda-run --work WORK rtl  eda-rtl-produce  /workspace/PROJECT
+scripts/eda-run --work WORK agent \
+  systemc-tlm-agent tools finalize /workspace/PROJECT
+```
 
 `eda-query` 只离线读取 Yosys/Verilator JSON；`eda-uhdm run DATABASE QUERY.py --output-dir OUTPUT -- ARGS...` 则在 UHDM 镜像中执行 Agent 编写的原生 Python API 查询，保存原始 stdout/stderr 和运行元数据。后者是探索信息，不直接生成证据 ID，必须回到有定位的 RTL/规格证据确认。详细接口见 `docs/agent-eda-query.md`。
 
-CLI 目前不支持将外部基准测试 EDA 包导入 `evidence.jsonl`，也没有专门的 TXT/Markdown 证据注册命令。智能体可以直接读取这些文件，但当前 CLI 无法确定性地将此类观察结果转换为证据 ID。
+CLI 目前不支持将外部基准测试 EDA 包或任意 TXT 观察直接导入
+`evidence.jsonl`。Markdown 必须列入 manifest 的 `documents` 才会按源行生成证据；
+其他临时观察不能自行转换为证据 ID。
 
 #### `architect`
 
@@ -93,7 +115,8 @@ scripts/systemc-tlm-agent architect PROJECT --validate
 scripts/systemc-tlm-agent approve PROJECT --approver NAME
 ```
 
-此后任何 manifest、事实、架构或冲突的更改都会使审批失效。
+此后任何 manifest、事实、架构或冲突的更改都会使审批失效。即使历史 approval
+哈希仍匹配，只要当前 architecture/UHDM 门禁失败，也会被判为无效。
 
 #### `generate`
 

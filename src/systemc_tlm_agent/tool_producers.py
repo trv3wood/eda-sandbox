@@ -1,36 +1,95 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
 from .io import (
-    dump_json, file_digest, load_json, load_yaml, project_paths, resolve_inputs,
+    dump_json, file_digest, load_json, load_yaml, project_paths,
+    relative_to_project, resolve_inputs,
 )
+from .uhdm_export import export_uhdm_structure
 
 
 def _run(command: list[str], cwd: Path, log: Path) -> dict[str, Any]:
     executable = shutil.which(command[0])
     if not executable:
         return {"status": "unavailable", "command": command}
-    result = subprocess.run(
-        command, cwd=cwd, text=True, stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT, check=False,
-    )
     log.parent.mkdir(parents=True, exist_ok=True)
-    log.write_text(result.stdout, encoding="utf-8")
+    with log.open("w", encoding="utf-8") as stream:
+        result = subprocess.run(
+            command,
+            cwd=cwd,
+            text=True,
+            stdout=stream,
+            stderr=subprocess.STDOUT,
+            check=False,
+        )
     return {
         "status": "passed" if result.returncode == 0 else "failed",
         "returncode": result.returncode,
         "command": command,
         "log": str(log),
     }
+
+
+def _log_markers(log: Path, markers: tuple[str, ...]) -> tuple[bool, list[str]]:
+    found = {marker: False for marker in markers}
+    if log.is_file():
+        with log.open("r", encoding="utf-8", errors="replace") as stream:
+            for line in stream:
+                for marker in markers:
+                    if marker in line:
+                        found[marker] = True
+    missing = [marker for marker, present in found.items() if not present]
+    return not missing, missing
+
+
+def _top_in_hierarchy(log: Path, reference_top: str) -> bool:
+    if not log.is_file():
+        return False
+    in_tree = False
+    with log.open("r", encoding="utf-8", errors="replace") as stream:
+        for raw_line in stream:
+            line = raw_line.strip()
+            if line == "Instance tree:":
+                in_tree = True
+                continue
+            if not in_tree or not line or line.startswith("Design name:"):
+                continue
+            object_name = line.split(" (", 1)[0].rsplit(".", 1)[-1]
+            if object_name.rsplit("@", 1)[-1] == reference_top:
+                return True
+    return False
+
+
+def _validated_cli(
+    command: list[str],
+    cwd: Path,
+    log: Path,
+    *,
+    markers: tuple[str, ...] = (),
+) -> dict[str, Any]:
+    result = _run(command, cwd, log)
+    if result.get("status") != "passed":
+        return result
+    valid, missing = _log_markers(log, markers)
+    if not valid:
+        return {
+            **result,
+            "status": "failed",
+            "reason": "required success marker(s) missing",
+            "missing_markers": missing,
+        }
+    return result
 
 
 def _inputs(project: Path) -> tuple[dict[str, Any], list[Path], list[Path], list[str]]:
@@ -101,26 +160,87 @@ def produce_uhdm(project: Path) -> dict[str, Any]:
     ]
     surelog = _run(command, work, paths["tools"] / "surelog.log")
     database = work / "slpp_all" / "surelog.uhdm"
-    if surelog["status"] == "passed" and database.is_file():
-        uhdm = {
-            "status": "passed",
-            "database": str(database),
-            "database_sha256": file_digest(database),
-            "database_size": database.stat().st_size,
-        }
+    database_valid = (
+        surelog.get("status") == "passed"
+        and database.is_file()
+        and database.stat().st_size > 0
+    )
+    if database_valid:
+        uhdm_elab = _validated_cli(
+            ["uhdm-dump", "--elab", str(database)],
+            project,
+            paths["tools"] / "uhdm-elab.log",
+            markers=("Restored design Pre-Elab:", "Restored design Post-Elab:"),
+        )
     else:
-        uhdm = {
+        uhdm_elab = {
             "status": "skipped",
-            "reason": (
-                "Surelog did not produce a UHDM database"
-                if surelog["status"] == "passed"
-                else "Surelog failed"
-            ),
-            "database": str(database),
+            "reason": "Surelog did not successfully produce a non-empty UHDM database",
         }
+    if uhdm_elab.get("status") == "passed":
+        uhdm_lint = _validated_cli(
+            ["uhdm-lint", str(database)],
+            project,
+            paths["tools"] / "uhdm-lint.log",
+        )
+        uhdm_hier = _validated_cli(
+            ["uhdm-hier", str(database), "--line"],
+            project,
+            paths["tools"] / "uhdm-hier.log",
+            markers=("Design name:", "Instance tree:"),
+        )
+        if (
+            uhdm_hier.get("status") == "passed"
+            and not _top_in_hierarchy(paths["tools"] / "uhdm-hier.log", str(top))
+        ):
+            uhdm_hier = {
+                **uhdm_hier,
+                "status": "failed",
+                "reason": f"elaborated hierarchy does not contain top {top}",
+            }
+    else:
+        reason = "UHDM elaboration validation did not pass"
+        uhdm_lint = {"status": "skipped", "reason": reason}
+        uhdm_hier = {"status": "skipped", "reason": reason}
+
+    structure_path = paths["tools"] / "uhdm-structure.json"
+    fixed_steps = (surelog, uhdm_elab, uhdm_lint, uhdm_hier)
+    if all(item.get("status") == "passed" for item in fixed_steps):
+        try:
+            structure = export_uhdm_structure(database, sources, str(top))
+            dump_json(structure_path, structure)
+            structure_status = {
+                "status": "passed",
+                "path": relative_to_project(project, structure_path),
+                "sha256": file_digest(structure_path),
+            }
+        except (RuntimeError, ValueError) as exc:
+            structure_status = {"status": "failed", "reason": str(exc)}
+    else:
+        structure_status = {
+            "status": "skipped",
+            "reason": "fixed UHDM CLI validation did not pass",
+        }
+    aggregate_passed = all(
+        item.get("status") == "passed"
+        for item in (*fixed_steps, structure_status)
+    )
+    uhdm = {
+        "status": "passed" if aggregate_passed else "failed",
+        "database": relative_to_project(project, database),
+        "database_sha256": file_digest(database) if database_valid else None,
+        "database_size": database.stat().st_size if database_valid else 0,
+        "structure": structure_status,
+    }
     result = _producer_record(
         "uhdm",
-        {"surelog": surelog, "uhdm": uhdm},
+        {
+            "surelog": surelog,
+            "uhdm_elab": uhdm_elab,
+            "uhdm_lint": uhdm_lint,
+            "uhdm_hier": uhdm_hier,
+            "uhdm": uhdm,
+        },
         sources,
         {
             "surelog": _version(["surelog", "-version"]),
@@ -176,18 +296,197 @@ def finalize_tools(project: Path) -> dict[str, Any]:
     rtl_path = paths["facts"] / "rtl.json"
     facts = load_json(rtl_path)
     tools: dict[str, Any] = {}
+
+    def fail(reason: str) -> None:
+        facts.update(
+            {
+                "schema_version": 2,
+                "status": "failed",
+                "backend": "uhdm",
+                "files": [],
+                "top_modules": [],
+                "tools": tools,
+                "failure": reason,
+            }
+        )
+        dump_json(rtl_path, facts)
+        summary_path = paths["facts"] / "summary.json"
+        if summary_path.exists():
+            summary = load_json(summary_path)
+            summary["rtl_status"] = "failed"
+            summary["rtl_module_count"] = 0
+            dump_json(summary_path, summary)
+        raise ValueError(reason)
+
     missing = []
     producers = ["uhdm", "rtl"]
+    producer_records = {}
     for producer in producers:
         path = paths["tools"] / f"producer-{producer}.json"
         if not path.exists():
             missing.append(producer)
             continue
-        tools.update(load_json(path).get("tools", {}))
+        producer_records[producer] = load_json(path)
+        tools.update(producer_records[producer].get("tools", {}))
     if missing:
-        raise ValueError("missing producer result(s): " + ", ".join(missing))
-    facts["tools"] = tools
+        fail("missing producer result(s): " + ", ".join(missing))
+    uhdm = tools.get("uhdm", {})
+    if uhdm.get("status") != "passed":
+        fail("UHDM extraction gate did not pass")
+    structure_record = uhdm.get("structure", {})
+    structure_path = Path(structure_record.get("path", ""))
+    if not structure_path.is_absolute():
+        structure_path = project / structure_path
+    if structure_record.get("status") != "passed" or not structure_path.is_file():
+        fail("UHDM structure artifact is missing or invalid")
+    if file_digest(structure_path) != structure_record.get("sha256"):
+        fail("UHDM structure artifact digest mismatch")
+    structure = load_json(structure_path)
+    manifest, host_sources, _, _ = _inputs(project)
+    if (
+        structure.get("schema_version") != 1
+        or structure.get("backend") != "uhdm-python-vpi"
+        or not isinstance(structure.get("modules"), list)
+        or not structure["modules"]
+        or not isinstance(structure.get("top_modules"), list)
+        or not structure["top_modules"]
+    ):
+        fail("UHDM structure artifact schema or content is invalid")
+    reference_top = (
+        manifest.get("reference_top")
+        or manifest.get("target_top")
+        or manifest.get("top")
+    )
+    if structure.get("reference_top") != reference_top:
+        fail("UHDM structure top does not match current manifest")
+    database_path = Path(uhdm.get("database", ""))
+    if not database_path.is_absolute():
+        database_path = project / database_path
+    if (
+        not database_path.is_file()
+        or file_digest(database_path) != uhdm.get("database_sha256")
+        or structure.get("database", {}).get("sha256")
+        != uhdm.get("database_sha256")
+    ):
+        fail("UHDM database is missing, changed, or inconsistent")
+    design_sources = resolve_inputs(
+        project, manifest.get("rtl", []), directory_suffixes={".v", ".sv"}
+    )
+    expected_inputs = {
+        "uhdm": sorted(file_digest(source) for source in host_sources),
+        "rtl": sorted(file_digest(source) for source in design_sources),
+    }
+    for producer, record in producer_records.items():
+        if (
+            record.get("schema_version") != 1
+            or record.get("producer") != producer
+            or not isinstance(record.get("inputs"), list)
+        ):
+            fail(f"{producer} producer record is invalid")
+        actual_values = [item.get("sha256") for item in record["inputs"]]
+        if not all(isinstance(value, str) for value in actual_values):
+            fail(f"{producer} producer input digest is invalid")
+        actual = sorted(actual_values)
+        if actual != expected_inputs[producer]:
+            fail(f"{producer} producer inputs do not match current manifest")
+    sources_by_digest: dict[str, list[Path]] = {}
+    for source in host_sources:
+        sources_by_digest.setdefault(file_digest(source), []).append(source)
+    files_by_path: dict[Path, dict[str, Any]] = {
+        source: {"path": relative_to_project(project, source), "modules": []}
+        for source in host_sources
+    }
+    rtl_evidence = []
+    from .extractors import _evidence
+
+    def normalize_locations(value: Any) -> Any:
+        if isinstance(value, list):
+            return [normalize_locations(item) for item in value]
+        if not isinstance(value, dict):
+            return value
+        normalized = {
+            key: normalize_locations(item) for key, item in value.items()
+        }
+        digest = normalized.get("sha256")
+        matches = sources_by_digest.get(digest, [])
+        if len(matches) == 1:
+            normalized["path"] = relative_to_project(project, matches[0])
+        return normalized
+
+    normalized_modules = normalize_locations(copy.deepcopy(structure["modules"]))
+    normalized_tops = normalize_locations(copy.deepcopy(structure["top_modules"]))
+    for raw_module in normalized_modules:
+        digest = raw_module.get("sha256")
+        matches = sources_by_digest.get(digest, [])
+        if len(matches) > 1 and raw_module.get("path"):
+            source_name = Path(raw_module["path"]).name
+            matches = [source for source in matches if source.name == source_name]
+        if len(matches) != 1:
+            fail(
+                f"UHDM module {raw_module.get('name')} cannot be mapped to one RTL input"
+            )
+        source = matches[0]
+        module = dict(raw_module)
+        module_name = (
+            module.get("definition") or module.get("name") or ""
+        ).rsplit("@", 1)[-1]
+        line = module.get("line")
+        evidence = _evidence(
+            kind="rtl",
+            path=source,
+            project_dir=project,
+            locator=f"line:{line or 'unknown'}/module:{module_name}",
+            text=f"UHDM module definition {module_name}",
+            extractor="uhdm-python-vpi/1",
+        )
+        module["name"] = module_name
+        module["evidence"] = evidence.id
+        files_by_path[source]["modules"].append(module)
+        rtl_evidence.append(asdict(evidence))
+
+    database = dict(structure["database"])
+    recorded_database = Path(uhdm.get("database", database["path"]))
+    database["path"] = (
+        str(recorded_database)
+        if not recorded_database.is_absolute()
+        else relative_to_project(project, recorded_database)
+    )
+    facts.update(
+        {
+            "schema_version": 2,
+            "status": "ready",
+            "backend": "uhdm",
+            "database": database,
+            "top_modules": normalized_tops,
+            "files": [
+                files_by_path[path]
+                for path in sorted(files_by_path)
+                if files_by_path[path]["modules"]
+            ],
+            "tools": tools,
+        }
+    )
+    facts["uhdm_modules"] = normalized_modules
     dump_json(rtl_path, facts)
+    existing_evidence = []
+    if paths["evidence"].exists():
+        for line in paths["evidence"].read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                item = json.loads(line)
+                if item.get("source_kind") != "rtl":
+                    existing_evidence.append(item)
+    with paths["evidence"].open("w", encoding="utf-8") as stream:
+        for item in sorted(
+            [*existing_evidence, *rtl_evidence], key=lambda value: value["id"]
+        ):
+            stream.write(json.dumps(item, ensure_ascii=False, sort_keys=True) + "\n")
+    summary_path = paths["facts"] / "summary.json"
+    if summary_path.exists():
+        summary = load_json(summary_path)
+        summary["rtl_status"] = "ready"
+        summary["rtl_module_count"] = len(normalized_modules)
+        summary["evidence_count"] = len(existing_evidence) + len(rtl_evidence)
+        dump_json(summary_path, summary)
     return {"status": "finalized", "tools": tools}
 
 

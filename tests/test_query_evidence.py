@@ -36,7 +36,8 @@ class QueryEvidenceTest(unittest.TestCase):
         args.project = str(root)
         args.name = "query-evidence"
         args.top = "packet_engine_top"
-        args.rtl = ["top.sv"]
+        # Query evidence is independent of the canonical UHDM RTL gate.
+        args.rtl = []
         command_init(args)
         extract_project(root, run_tools=False)
         create_architecture_draft(root)

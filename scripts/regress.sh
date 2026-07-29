@@ -39,7 +39,8 @@ case "${profile}" in
     systemc-tlm-agent --help >/dev/null
     ;;
   uhdm)
-    require_tools python3 surelog eda-uhdm eda-uhdm-produce
+    require_tools \
+      python3 surelog uhdm-dump uhdm-lint uhdm-hier eda-uhdm eda-uhdm-produce
     python3 -c 'import uhdm; print("  UHDM:    Python binding available")'
     eda-uhdm version
     probe_dir="$(mktemp -d)"
@@ -66,6 +67,11 @@ case "${profile}" in
     (
       cd "${probe_dir}"
       surelog top.sv -top top -parse -elabuhdm -d uhdm >/dev/null
+      uhdm-dump --elab slpp_all/surelog.uhdm >uhdm-elab.log
+      grep -q 'Restored design Post-Elab:' uhdm-elab.log
+      uhdm-lint slpp_all/surelog.uhdm >/dev/null
+      uhdm-hier slpp_all/surelog.uhdm --line >uhdm-hier.log
+      grep -q 'top' uhdm-hier.log
       eda-uhdm run slpp_all/surelog.uhdm query.py \
         --output-dir query-output
     )

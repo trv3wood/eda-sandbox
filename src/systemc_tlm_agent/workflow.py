@@ -30,6 +30,24 @@ CONTRACT_CATEGORIES = [
 ]
 
 
+def _validate_rtl_gate(paths: dict[str, Path], errors: list[str]) -> None:
+    facts = load_json(paths["facts"] / "rtl.json")
+    if not facts.get("design_rtl"):
+        return
+    if facts.get("schema_version") != 2:
+        errors.append("RTL facts schema_version must be 2")
+    if facts.get("status") != "ready":
+        errors.append("RTL extraction requires a ready UHDM result")
+    if facts.get("backend") != "uhdm":
+        errors.append("RTL facts backend must be uhdm; no fallback is allowed")
+    tools = facts.get("tools", {})
+    for name in ("surelog", "uhdm_elab", "uhdm_lint", "uhdm_hier", "uhdm"):
+        if tools.get(name, {}).get("status") != "passed":
+            errors.append(f"RTL extraction gate {name} must pass")
+    if not facts.get("files"):
+        errors.append("RTL UHDM facts must contain at least one module definition")
+
+
 def _rtl_traceability(paths: dict[str, Path]) -> list[dict[str, Any]]:
     facts = load_json(paths["facts"] / "rtl.json")
     modules = []
@@ -95,6 +113,7 @@ def validate_architecture(project_dir: Path) -> list[str]:
     paths = project_paths(project_dir)
     architecture = load_yaml(paths["contracts"])
     errors = []
+    _validate_rtl_gate(paths, errors)
     if architecture.get("schema_version") != 3:
         errors.append("schema_version must be 3 for approval")
     categories = architecture.get("categories", {})
@@ -458,6 +477,13 @@ def approval_is_valid(project_dir: Path) -> tuple[bool, str]:
         return False, "approval status is not approved"
     if approval.get("content_sha256") != expected:
         return False, "approval is stale because inputs, facts, or contracts changed"
+    validation_errors = validate_architecture(project_dir)
+    if validation_errors:
+        return (
+            False,
+            "approval is invalid because current architecture gates fail: "
+            + validation_errors[0],
+        )
     return True, "approval is valid"
 
 
@@ -472,6 +498,9 @@ def status(project_dir: Path) -> dict[str, Any]:
         "model": (paths["model"] / "CMakeLists.txt").exists(),
         "verification": paths["verification"].exists(),
     }
+    if result["facts"]:
+        summary = load_json(paths["facts"] / "summary.json")
+        result["rtl_status"] = summary.get("rtl_status", "unknown")
     if result["contracts"] and result["facts"]:
         result["contract_errors"] = validate_architecture(project_dir)
     if paths["approval"].exists():
