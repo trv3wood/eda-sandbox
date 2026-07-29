@@ -187,18 +187,22 @@ def command_init(args: argparse.Namespace) -> dict:
             "defines": getattr(args, "eda_define", []),
         },
         "backend": args.backend,
-    }
-    if getattr(args, "spec_llm_model", None):
-        manifest["graph"] = {
+        "graph": {
             "spec_extraction": {
                 "provider": "openai-compatible",
-                "model": args.spec_llm_model,
+                "model": getattr(args, "spec_llm_model", None),
                 "base_url": getattr(args, "spec_llm_base_url", None),
-                "base_url_env": args.spec_llm_base_url_env,
-                "api_key_env": args.spec_llm_api_key_env,
+                "base_url_env": getattr(
+                    args, "spec_llm_base_url_env", "SYSTEMC_TLM_LLM_BASE_URL"
+                ),
+                "api_key_env": getattr(
+                    args, "spec_llm_api_key_env", "SYSTEMC_TLM_LLM_API_KEY"
+                ),
                 "batch_max_chars": 24000,
+                "response_format": "json_object",
             }
-        }
+        },
+    }
     dump_yaml(paths["manifest"], manifest)
     return {"manifest": str(paths["manifest"])}
 

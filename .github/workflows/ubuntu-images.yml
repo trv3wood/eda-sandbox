@@ -29,10 +29,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - target: agent
-            name: eda-agent
-            profile: agent
-            max_mb: 500
           - target: eda-uhdm
             name: eda-uhdm
             profile: uhdm

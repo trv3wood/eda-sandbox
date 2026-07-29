@@ -1,14 +1,4 @@
 services:
-  eda-agent:
-    build:
-      context: .
-      dockerfile: Dockerfile.ubuntu
-      target: agent
-    image: localhost/eda-agent:local
-    working_dir: /workspace
-    volumes:
-      - .:/workspace
-
   eda-uhdm:
     build:
       context: .

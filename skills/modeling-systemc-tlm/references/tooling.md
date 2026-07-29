@@ -1,7 +1,14 @@
 # Tool and Backend Policy
 
-Use local tools when they are available. Otherwise route commands through the
-small role-specific images with the repository wrapper:
+Use the local `uv` environment for workflow and Spec production. Route only
+EDA and SystemC work through the role-specific images with the repository
+wrapper:
+
+Before running the Spec producer, install its local dependencies once:
+
+```bash
+uv sync --extra graph
+```
 
 ```bash
 scripts/eda-run --work WORK agent \
@@ -20,7 +27,7 @@ scripts/eda-run --work WORK scc \
 `PROJECT` is relative to the mounted `WORK`; the wrapper maps `WORK` to
 `/workspace`. The roles are:
 
-- `agent`: workflow and graph/spec tooling.
+- `agent`: local `uv` workflow and graph/spec tooling; it is not a container.
 - `uhdm`: Surelog, the UHDM Python binding, and the thin `eda-uhdm` runner.
 - `scc`: SystemC/minres-SCC compilation and verification.
 - `rocky`: Rocky Linux 8 compatibility checks.

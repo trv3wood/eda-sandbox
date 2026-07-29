@@ -90,7 +90,8 @@ Surelog 的零错误摘要和非空二进制 `.uhdm` 验证 elaboration，`uhdm-
 module/instance/port/signal/parameter/package 实体和确定性关系。不存在 RTL 文本或
 正则 fallback。
 
-主机没有工具时，先提取但跳过本地工具，再使用角色镜像产生独立结果：
+主机先通过本地 `uv` 运行工作流和规格 producer；缺少 EDA 工具时，再使用
+UHDM 角色镜像产生结构结果：
 
 ```bash
 scripts/systemc-tlm-agent extract PROJECT --skip-tools

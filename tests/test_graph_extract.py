@@ -116,6 +116,7 @@ class GraphExtractTest(unittest.TestCase):
             class Completions:
                 def create(self, **kwargs):
                     calls.append(kwargs)
+                    assert kwargs["response_format"] == {"type": "json_object"}
                     units = json.loads(kwargs["messages"][1]["content"])
                     unit = units[0]
                     response = {

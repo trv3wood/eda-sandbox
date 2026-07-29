@@ -456,6 +456,18 @@ def produce_spec_graph(project: Path) -> dict[str, Any]:
     maximum = int(config.get("batch_max_chars", 24000))
     if maximum < 1000:
         raise ValueError("graph.spec_extraction.batch_max_chars must be >= 1000")
+    response_format = config.get("response_format", "json_object")
+    if response_format not in {"json_object", "json_schema"}:
+        raise ValueError(
+            "graph.spec_extraction.response_format must be json_object or json_schema"
+        )
+    api_response_format: dict[str, Any] = {"type": response_format}
+    if response_format == "json_schema":
+        api_response_format["json_schema"] = {
+            "name": "hardware_spec_graph",
+            "strict": True,
+            "schema": spec_response_schema(),
+        }
     batches: list[list[dict[str, Any]]] = []
     current: list[dict[str, Any]] = []
     current_size = 0
@@ -469,22 +481,41 @@ def produce_spec_graph(project: Path) -> dict[str, Any]:
     if current:
         batches.append(current)
 
+    print(
+        f"Spec graph: processing {len(batches)} batch(es) with {len(text_units)} text unit(s)",
+        file=sys.stderr,
+        flush=True,
+    )
     client = None
     entities: list[dict[str, Any]] = []
     relationships: list[dict[str, Any]] = []
     response_digests = []
     fingerprints = []
-    for batch in batches:
+    for batch_number, batch in enumerate(batches, 1):
+        batch_characters = sum(len(item["text"]) for item in batch)
         cache_key = canonical_digest({
             "input": canonical_digest(batch),
             "model": model,
             "prompt": prompt_digest,
             "temperature": 0,
+            "response_format": response_format,
         })
         cache_path = cache / f"{cache_key}.json"
         if cache_path.is_file():
+            print(
+                f"Spec graph: batch {batch_number}/{len(batches)} cache hit "
+                f"({len(batch)} unit(s), {batch_characters} character(s))",
+                file=sys.stderr,
+                flush=True,
+            )
             cached = load_json(cache_path)
         else:
+            print(
+                f"Spec graph: batch {batch_number}/{len(batches)} requesting "
+                f"({len(batch)} unit(s), {batch_characters} character(s))",
+                file=sys.stderr,
+                flush=True,
+            )
             if client is None:
                 client = OpenAI(base_url=base_url, api_key=api_key)
             completion = client.chat.completions.create(
@@ -496,7 +527,9 @@ def produce_spec_graph(project: Path) -> dict[str, Any]:
                         "content": (
                             "Extract only source-grounded hardware specification "
                             "entities and relationships. Every item must cite exact "
-                            "character spans."
+                            "character spans. Return one JSON object that validates "
+                            "against this JSON Schema: "
+                            + json.dumps(spec_response_schema(), sort_keys=True)
                         ),
                     },
                     {
@@ -504,14 +537,7 @@ def produce_spec_graph(project: Path) -> dict[str, Any]:
                         "content": json.dumps(batch, ensure_ascii=False),
                     },
                 ],
-                response_format={
-                    "type": "json_schema",
-                    "json_schema": {
-                        "name": "hardware_spec_graph",
-                        "strict": True,
-                        "schema": spec_response_schema(),
-                    },
-                },
+                response_format=api_response_format,
             )
             content = completion.choices[0].message.content or "{}"
             cached = {
@@ -522,6 +548,11 @@ def produce_spec_graph(project: Path) -> dict[str, Any]:
                 ),
             }
             dump_json(cache_path, cached)
+            print(
+                f"Spec graph: batch {batch_number}/{len(batches)} completed",
+                file=sys.stderr,
+                flush=True,
+            )
         response_digest = canonical_digest(cached["response"])
         batch_entities, batch_relationships = normalize_spec_response(
             cached["response"],
