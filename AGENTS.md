@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-The Python package lives in `src/systemc_tlm_agent/`. `cli.py` defines the
+The Python package lives in `src/tlm_agent/`. `cli.py` defines the
 command-line workflow; extraction, contract handling, generation, and
 verification are separated into `extractors.py`, `workflow.py`, `generator.py`,
 and `verifier.py`. Tests and synthetic RTL/spec fixtures are under `tests/`.
@@ -18,7 +18,7 @@ normally in a mounted project directory under `/workspace`.
 ```bash
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 python3 -m compileall -q src tests
-PYTHONPATH=src python3 -m systemc_tlm_agent.cli --help
+PYTHONPATH=src python3 -m tlm_agent.cli --help
 podman-compose run --rm eda-agent bash scripts/regress.sh
 ```
 

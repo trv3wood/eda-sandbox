@@ -11,8 +11,8 @@ from .io import (
     relative_to_project,
     resolve_inputs,
 )
-from .graph_extract import extract_document_graph, extract_workbook_units
-from .graph_schema import GRAPH_SCHEMA_VERSION, canonical_digest, write_jsonl
+from .graph.extract import extract_document_graph, extract_workbook_units
+from .graph.schema import GRAPH_SCHEMA_VERSION, canonical_digest, write_jsonl
 
 
 def extract_project(project_dir: Path, *, run_tools: bool = True) -> dict[str, Any]:
@@ -139,7 +139,7 @@ def extract_project(project_dir: Path, *, run_tools: bool = True) -> dict[str, A
         "missing_inputs": [] if rtl_files else ["rtl"],
     }
     if run_tools and rtl_files:
-        from .graph_extract import produce_spec_graph
+        from .graph.extract import produce_spec_graph
         from .tool_producers import finalize_tools, produce_uhdm
 
         if text_units:
@@ -150,8 +150,8 @@ def extract_project(project_dir: Path, *, run_tools: bool = True) -> dict[str, A
         summary["graph_status"] = finalized["status"]
         summary["rtl_status"] = finalized["producers"]["rtl"]["status"]
     elif run_tools:
-        from .graph_extract import produce_spec_graph
-        from .graph_finalize import finalize_graph
+        from .graph.extract import produce_spec_graph
+        from .graph.finalize import finalize_graph
 
         if text_units:
             produce_spec_graph(project_dir)

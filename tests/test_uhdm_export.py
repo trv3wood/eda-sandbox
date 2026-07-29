@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from systemc_tlm_agent.uhdm_export import export_uhdm_structure
+from tlm_agent.uhdm_export import export_uhdm_structure
 
 
 class _Serializer:

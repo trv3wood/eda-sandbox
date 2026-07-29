@@ -8,15 +8,15 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from systemc_tlm_agent.graph_extract import (
+from tlm_agent.graph.extract import (
     extract_document_graph,
     normalize_spec_response,
     produce_spec_graph,
 )
-from systemc_tlm_agent.extractors import extract_project
-from systemc_tlm_agent.graph_finalize import align_cross_source
-from systemc_tlm_agent.graph_schema import entity, relationship, validate_graph
-from systemc_tlm_agent.io import dump_yaml, load_json
+from tlm_agent.extractors import extract_project
+from tlm_agent.graph.finalize import align_cross_source
+from tlm_agent.graph.schema import entity, relationship, validate_graph
+from tlm_agent.io import dump_yaml, load_json
 
 
 class GraphExtractTest(unittest.TestCase):

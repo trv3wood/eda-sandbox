@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .graph_schema import (
+from .schema import (
     GRAPH_SCHEMA_VERSION,
     SPEC_ENTITY_TYPES,
     SPEC_RELATION_TYPES,
@@ -18,7 +18,7 @@ from .graph_schema import (
     stable_id,
     write_jsonl,
 )
-from .io import dump_json, file_digest, load_json, load_yaml, relative_to_project
+from ..io import dump_json, file_digest, load_json, load_yaml, relative_to_project
 
 SPEC_PROMPT_VERSION = "systemc-tlm-spec-graph/1"
 

@@ -16,7 +16,7 @@ from .extractors import extract_project
 from .generator import generate_model
 from .io import dump_yaml, project_paths
 from .tool_producers import finalize_tools
-from .graph_runtime import (
+from .graph.runtime import (
     build_faiss_index,
     build_parquet_store,
     lookup as graph_lookup,
