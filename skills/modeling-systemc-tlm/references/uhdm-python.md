@@ -1,7 +1,7 @@
 # Direct UHDM Python Queries
 
 The standard producer uses the official UHDM Python binding only after
-`uhdm-dump --elab`, `uhdm-lint`, and `uhdm-hier --line` pass. For additional
+Surelog binary-database validation, `uhdm-lint`, and `uhdm-hier --line` pass. For additional
 questions, use the binding only against that validated
 `tools/surelog-work/slpp_all/surelog.uhdm`. Write the smallest script that
 answers the current modeling question. Do not build a second generic object

@@ -117,7 +117,7 @@ arbitrary script output a self-certifying evidence source.
 
 Projects with packages and generated dependencies should provide source order,
 include directories, and defines in `eda_compile`. `eda-uhdm-produce` invokes
-Surelog with full elaboration, validates the database with `uhdm-dump --elab`,
+Surelog with full elaboration, validates its non-empty binary database and
 `uhdm-lint`, and `uhdm-hier --line`, then exports deterministic structure
 through the official Python binding. It leaves `surelog.uhdm` intact;
 `eda-rtl-produce` independently runs Verilator and Yosys.

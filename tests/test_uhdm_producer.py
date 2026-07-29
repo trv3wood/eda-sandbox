@@ -13,7 +13,7 @@ from systemc_tlm_agent.io import (
     load_json,
     project_paths,
 )
-from systemc_tlm_agent.tool_producers import finalize_tools, produce_uhdm
+from systemc_tlm_agent.tool_producers import _inputs, finalize_tools, produce_uhdm
 
 
 class UhdmProducerTest(unittest.TestCase):
@@ -66,6 +66,30 @@ class UhdmProducerTest(unittest.TestCase):
             "modules": [module],
         }
 
+    def test_compile_sources_honor_excludes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project, rtl = self._project(Path(temporary))
+            ignored = project / "ignored.sv"
+            ignored.write_text("module ignored; endmodule\n", encoding="utf-8")
+            manifest = {
+                "schema_version": 1,
+                "name": "uhdm-fixture",
+                "target_top": "top",
+                "reference_top": "top",
+                "rtl": ["top.sv"],
+                "eda_compile": {
+                    "sources": ["*.sv"],
+                    "exclude_sources": ["ignored.sv"],
+                    "include_dirs": [],
+                    "defines": [],
+                },
+            }
+            dump_yaml(project / "manifest.yaml", manifest)
+
+            _, sources, _, _ = _inputs(project)
+
+            self.assertEqual(sources, [rtl.resolve()])
+
     @patch("systemc_tlm_agent.tool_producers._version", return_value="1.84")
     @patch("systemc_tlm_agent.tool_producers.export_uhdm_structure")
     @patch("systemc_tlm_agent.tool_producers._run")
@@ -73,18 +97,13 @@ class UhdmProducerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             project, rtl = self._project(Path(temporary))
 
-            def execute(command, cwd, log):
+            def execute(command, cwd, log, **_kwargs):
                 log.parent.mkdir(parents=True, exist_ok=True)
                 if command[0] == "surelog":
                     database = cwd / "slpp_all" / "surelog.uhdm"
                     database.parent.mkdir(parents=True)
                     database.write_bytes(b"native uhdm")
-                    log.write_text("surelog passed\n")
-                elif command[0] == "uhdm-dump":
-                    log.write_text(
-                        "Restored design Pre-Elab:\n"
-                        "Restored design Post-Elab:\n"
-                    )
+                    log.write_text("[  FATAL] : 0\n[  ERROR] : 0\n")
                 elif command[0] == "uhdm-hier":
                     log.write_text(
                         "Design name: work\nInstance tree:\nwork@top (work@top top.sv:1:)\n"
@@ -92,8 +111,8 @@ class UhdmProducerTest(unittest.TestCase):
                 else:
                     log.write_text("")
                 return {
-                    "status": "passed",
-                    "returncode": 0,
+                    "status": "failed" if command[0] == "surelog" else "passed",
+                    "returncode": 4 if command[0] == "surelog" else 0,
                     "command": command,
                     "log": str(log),
                 }
@@ -110,32 +129,34 @@ class UhdmProducerTest(unittest.TestCase):
             self.assertEqual(result["tools"]["uhdm"]["status"], "passed")
             self.assertEqual(
                 [call.args[0][0] for call in run.call_args_list],
-                ["surelog", "uhdm-dump", "uhdm-lint", "uhdm-hier"],
+                ["surelog", "uhdm-lint", "uhdm-hier"],
             )
-            self.assertIn("--elab", run.call_args_list[1].args[0])
+            self.assertNotIn("-d", run.call_args_list[0].args[0])
 
     @patch("systemc_tlm_agent.tool_producers._version", return_value="1.84")
     @patch("systemc_tlm_agent.tool_producers.export_uhdm_structure")
     @patch("systemc_tlm_agent.tool_producers._run")
-    def test_dump_zero_exit_without_markers_fails_gate(
+    def test_surelog_without_clean_summary_fails_gate(
         self, run, export, _version
     ) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             project, _ = self._project(Path(temporary))
 
-            def execute(command, cwd, log):
+            def execute(command, cwd, log, **_kwargs):
                 log.parent.mkdir(parents=True, exist_ok=True)
                 if command[0] == "surelog":
                     database = cwd / "slpp_all" / "surelog.uhdm"
                     database.parent.mkdir(parents=True)
                     database.write_bytes(b"stale uhdm")
-                log.write_text("Usage:\n")
+                    log.write_text("Surelog did not print a summary\n")
+                else:
+                    log.write_text("Usage:\n")
                 return {"status": "passed", "returncode": 0}
 
             run.side_effect = execute
             result = produce_uhdm(project)
 
-            self.assertEqual(result["tools"]["uhdm_elab"]["status"], "failed")
+            self.assertEqual(result["tools"]["uhdm_elab"]["status"], "skipped")
             self.assertEqual(result["tools"]["uhdm"]["status"], "failed")
             export.assert_not_called()
 
@@ -149,18 +170,13 @@ class UhdmProducerTest(unittest.TestCase):
             project, rtl = self._project(Path(temporary))
             extract_project(project, run_tools=False)
 
-            def execute(command, cwd, log):
+            def execute(command, cwd, log, **_kwargs):
                 log.parent.mkdir(parents=True, exist_ok=True)
                 if command[0] == "surelog":
                     database = cwd / "slpp_all" / "surelog.uhdm"
                     database.parent.mkdir(parents=True)
                     database.write_bytes(b"native uhdm")
-                    log.write_text("surelog passed\n")
-                elif command[0] == "uhdm-dump":
-                    log.write_text(
-                        "Restored design Pre-Elab:\n"
-                        "Restored design Post-Elab:\n"
-                    )
+                    log.write_text("[  FATAL] : 0\n[  ERROR] : 0\n")
                 elif command[0] == "uhdm-hier":
                     log.write_text(
                         "Design name: work\nInstance tree:\nwork@top (work@top top.sv:1:)\n"

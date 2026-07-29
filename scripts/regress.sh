@@ -40,7 +40,7 @@ case "${profile}" in
     ;;
   uhdm)
     require_tools \
-      python3 surelog uhdm-dump uhdm-lint uhdm-hier eda-uhdm eda-uhdm-produce
+      python3 surelog uhdm-lint uhdm-hier eda-uhdm eda-uhdm-produce
     python3 -c 'import uhdm; print("  UHDM:    Python binding available")'
     eda-uhdm version
     probe_dir="$(mktemp -d)"
@@ -66,9 +66,7 @@ case "${profile}" in
       >"${probe_dir}/query.py"
     (
       cd "${probe_dir}"
-      surelog top.sv -top top -parse -elabuhdm -d uhdm >/dev/null
-      uhdm-dump --elab slpp_all/surelog.uhdm >uhdm-elab.log
-      grep -q 'Restored design Post-Elab:' uhdm-elab.log
+      surelog top.sv -top top -parse -elabuhdm >/dev/null
       uhdm-lint slpp_all/surelog.uhdm >/dev/null
       uhdm-hier slpp_all/surelog.uhdm --line >uhdm-hier.log
       grep -q 'top' uhdm-hier.log
@@ -120,7 +118,7 @@ case "${profile}" in
       >"${probe_dir}/top.sv"
     (
       cd "${probe_dir}"
-      surelog top.sv -top top -parse -elabuhdm -d uhdm >/dev/null
+      surelog top.sv -top top -parse -elabuhdm >/dev/null
       test -s slpp_all/surelog.uhdm
     )
     ;;

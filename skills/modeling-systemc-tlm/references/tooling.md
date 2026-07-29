@@ -32,12 +32,14 @@ Structural extraction uses:
 
 The UHDM producer always runs this fixed sequence:
 
-1. `surelog ... -parse -elabuhdm -d uhdm`
-2. `uhdm-dump --elab surelog.uhdm`
+1. `surelog ... -parse -elabuhdm`
+2. validate the non-empty `surelog.uhdm` and Surelog's zero-error summary
 3. `uhdm-lint surelog.uhdm`
 4. `uhdm-hier surelog.uhdm --line`
 5. the official Python VPI exporter
 
+Do not add Surelog's `-d uhdm` debug dump to the producer invocation: it emits
+the complete UHDM tree to stdout and can make logs hundreds of megabytes.
 Do not trust exit code alone: UHDM 1.84 command-line tools return success for
 some usage and missing-file paths. The producer also requires the documented
 restore/elaboration markers and the requested top in the hierarchy output.
