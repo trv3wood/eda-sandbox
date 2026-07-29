@@ -19,16 +19,6 @@ services:
     volumes:
       - .:/workspace
 
-  eda-rtl:
-    build:
-      context: .
-      dockerfile: Dockerfile.ubuntu
-      target: rtl-tools
-    image: localhost/eda-rtl:local
-    working_dir: /workspace
-    volumes:
-      - .:/workspace
-
   eda-scc:
     build:
       context: .

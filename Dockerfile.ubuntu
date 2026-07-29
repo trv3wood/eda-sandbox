@@ -70,31 +70,6 @@ RUN python3 -c "import uhdm; print(uhdm.Serializer)"
 RUN eda-uhdm version
 CMD ["/bin/bash"]
 
-# Verilator/Yosys are independent from the semantic UHDM producer.
-FROM ubuntu-base AS rtl-tools
-ARG MICROMAMBA_VERSION=2.6.2-1
-ARG IMAGE_REVISION=unknown
-ENV MAMBA_ROOT_PREFIX=/opt/conda \
-    PATH=/opt/conda/envs/rtl/bin:/usr/local/bin:/usr/bin \
-    IMAGE_REVISION=${IMAGE_REVISION}
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates curl && \
-    rm -rf /var/lib/apt/lists/*
-COPY env/rtl-environment.yml /tmp/rtl-environment.yml
-RUN curl -fsSL \
-        "https://github.com/mamba-org/micromamba-releases/releases/download/${MICROMAMBA_VERSION}/micromamba-linux-64" \
-        -o /usr/local/bin/micromamba && \
-    chmod 0755 /usr/local/bin/micromamba && \
-    micromamba create --yes --prefix /opt/conda/envs/rtl \
-        --file /tmp/rtl-environment.yml && \
-    micromamba clean --all --yes && \
-    rm -f /tmp/rtl-environment.yml
-COPY pyproject.toml /opt/systemc-agent/
-COPY src /opt/systemc-agent/src
-COPY scripts/regress.sh /opt/systemc-agent/scripts/regress.sh
-RUN python3 -m pip install --no-deps /opt/systemc-agent
-CMD ["/bin/bash"]
-
 # SCC/Conan compilation is a cacheable target. Keep runtime assembly below it
 # so a failed copy cannot discard the expensive dependency and SCC builds.
 FROM ubuntu-base AS scc-compile

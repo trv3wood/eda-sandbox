@@ -47,9 +47,9 @@ testbench:
 backend: local
 ```
 
-`target_top` 是待生成的 DUT。`reference_top` 是已有的黄金 RTL 模块，供结构化
-EDA 使用。Surelog 接收 `eda_compile.sources`（未配置时使用 `rtl`）以及对应的
-include directory/define；Verilator 和 Yosys 仅接收 `rtl`。
+`target_top` 是待生成的 DUT。`reference_top` 是已有的黄金 RTL 模块，供
+Surelog/UHDM 结构化 elaboration 使用。Surelog 接收 `eda_compile.sources`（未配置时
+使用 `rtl`）以及对应的 include directory/define。
 
 规范图需要一个支持 Structured Outputs 的 OpenAI-compatible endpoint：
 
@@ -83,7 +83,7 @@ scripts/systemc-tlm-agent init PROJECT \
 #### `extract`
 
 解析 manifest 输入，计算源文件摘要，写入文档树、text units 和 pending graph，
-并可选择运行 Spec、UHDM、Verilator 和 Yosys producer。
+并可选择运行 Spec 和 UHDM producer。
 
 ```bash
 scripts/systemc-tlm-agent extract PROJECT
@@ -107,7 +107,6 @@ Surelog 原生数据库保留在
 
 ```bash
 scripts/eda-run --work WORK uhdm eda-uhdm-produce /workspace/PROJECT
-scripts/eda-run --work WORK rtl  eda-rtl-produce  /workspace/PROJECT
 scripts/eda-run --work WORK agent eda-spec-produce /workspace/PROJECT
 scripts/eda-run --work WORK agent \
   systemc-tlm-agent tools finalize /workspace/PROJECT
@@ -115,8 +114,8 @@ scripts/eda-run --work WORK agent \
   systemc-tlm-agent graph build /workspace/PROJECT
 ```
 
-`eda_compile.sources` 同时是 UHDM、Verilator 与 Yosys 的编译文件集；
-`include_dirs` 和 `defines` 也会传给三个 producer。对于包含共享 primitive
+`eda_compile.sources` 是 UHDM 的编译文件集；`include_dirs` 和 `defines` 也会传给
+UHDM producer。对于包含共享 primitive
 目录的 IP，可用 `exclude_sources`（文件、目录或 glob 列表）排除与该 top 无关、
 但依赖未被检出的模块。
 
@@ -136,7 +135,9 @@ hf download intfloat/multilingual-e5-small \
 
 运行时只从本地加载上述固定模型 revision，不会隐式访问网络。
 
-`eda-query` 只离线读取 Yosys/Verilator JSON；`eda-uhdm run DATABASE QUERY.py --output-dir OUTPUT -- ARGS...` 则在 UHDM 镜像中执行 Agent 编写的原生 Python API 查询，保存原始 stdout/stderr 和运行元数据。后者是探索信息，不直接生成证据 ID，必须回到有定位的 RTL/规格证据确认。详细接口见 `docs/agent-eda-query.md`。
+`eda-uhdm run DATABASE QUERY.py --output-dir OUTPUT -- ARGS...` 在 UHDM 镜像中执行
+Agent 编写的原生 Python API 查询，保存原始 stdout/stderr 和运行元数据。查询结果是探索信息，
+不直接生成证据 ID，必须回到有定位的 RTL/规格证据确认。
 
 合同中的 `evidence_ids` 只能引用规范图中带 `source_refs` 的实体。临时 EDA
 查询和日志不能自行转换为证据 ID。

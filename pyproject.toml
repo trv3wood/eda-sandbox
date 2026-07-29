@@ -18,10 +18,8 @@ dependencies = [
 [project.scripts]
 systemc-tlm-agent = "systemc_tlm_agent.cli:main"
 systemc-tlm-package = "systemc_tlm_model_packager.cli:main"
-eda-query = "eda_query.cli:main"
 eda-uhdm = "eda_query.uhdm_runtime:main"
 eda-uhdm-produce = "systemc_tlm_agent.tool_producers:uhdm_main"
-eda-rtl-produce = "systemc_tlm_agent.tool_producers:rtl_main"
 eda-spec-produce = "systemc_tlm_agent.graph_extract:spec_main"
 
 [project.optional-dependencies]
@@ -38,9 +36,6 @@ vector = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
-
-[tool.setuptools.package-data]
-eda_query = ["query-result.schema.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

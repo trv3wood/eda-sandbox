@@ -8,9 +8,8 @@ Usage:
   scripts/eda-run [OPTIONS] ROLE --shell
 
 Roles:
-  agent       Workflow and offline queries
+  agent       Workflow and graph/spec tooling
   uhdm        Surelog and direct UHDM Python queries
-  rtl         Verilator and Yosys
   scc         SystemC/SCC compilation and verification
   rocky       Rocky Linux 8 compatibility toolchain
 
@@ -26,11 +25,10 @@ Environment:
   EDA_CONTAINER_ENGINE  podman or docker
   EDA_IMAGE_PREFIX      default: ghcr.io/trv3wood
   EDA_IMAGE_TAG         default: main
-  EDA_AGENT_IMAGE, EDA_UHDM_IMAGE, EDA_RTL_IMAGE, EDA_SCC_IMAGE,
+  EDA_AGENT_IMAGE, EDA_UHDM_IMAGE, EDA_SCC_IMAGE,
   EDA_ROCKY_IMAGE
 
 Examples:
-  scripts/eda-run rtl verilator --version
   scripts/eda-run uhdm surelog --version
   scripts/eda-run uhdm eda-uhdm run /workspace/design.uhdm \
     /workspace/query.py --output-dir /workspace/query-output
@@ -105,10 +103,6 @@ case "${role}" in
   uhdm)
     role_image="${EDA_UHDM_IMAGE:-}"
     image_name="eda-uhdm"
-    ;;
-  rtl)
-    role_image="${EDA_RTL_IMAGE:-}"
-    image_name="eda-rtl"
     ;;
   scc)
     role_image="${EDA_SCC_IMAGE:-}"

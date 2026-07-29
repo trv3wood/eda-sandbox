@@ -140,12 +140,11 @@ def extract_project(project_dir: Path, *, run_tools: bool = True) -> dict[str, A
     }
     if run_tools and rtl_files:
         from .graph_extract import produce_spec_graph
-        from .tool_producers import finalize_tools, produce_rtl, produce_uhdm
+        from .tool_producers import finalize_tools, produce_uhdm
 
         if text_units:
             produce_spec_graph(project_dir)
         produce_uhdm(project_dir)
-        produce_rtl(project_dir)
         finalize_tools(project_dir)
         finalized = load_json(paths["graph_manifest"])
         summary["graph_status"] = finalized["status"]

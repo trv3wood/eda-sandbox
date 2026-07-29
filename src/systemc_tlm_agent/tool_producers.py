@@ -306,49 +306,6 @@ def produce_uhdm(project: Path) -> dict[str, Any]:
     return result
 
 
-def produce_rtl(project: Path) -> dict[str, Any]:
-    manifest, rtl, include_dirs, defines = _inputs(project)
-    paths = project_paths(project)
-    top = manifest.get("reference_top") or manifest.get("target_top") or manifest.get("top")
-    verilator = _run(
-        [
-            "verilator", "--json-only", "--top-module", str(top),
-            "--json-only-output", str(paths["tools"] / "verilator.json"),
-            *(f"-I{path}" for path in include_dirs),
-            *(f"-D{value}" for value in defines),
-            *(str(path) for path in rtl),
-        ],
-        project,
-        paths["tools"] / "verilator.log",
-    )
-    yosys_script = (
-        "read_verilog -sv "
-        + " ".join(json.dumps(f"-I{path}") for path in include_dirs)
-        + " "
-        + " ".join(json.dumps(f"-D{value}") for value in defines)
-        + " "
-        + " ".join(json.dumps(str(path)) for path in rtl)
-        + f"; hierarchy -check -top {top}; write_json "
-        + json.dumps(str(paths["tools"] / "yosys.json"))
-    )
-    yosys = _run(
-        ["yosys", "-p", yosys_script],
-        project,
-        paths["tools"] / "yosys.log",
-    )
-    result = _producer_record(
-        "rtl",
-        {"verilator": verilator, "yosys": yosys},
-        rtl,
-        {
-            "verilator": _version(["verilator", "--version"]),
-            "yosys": _version(["yosys", "-V"]),
-        },
-    )
-    dump_json(paths["tools"] / "producer-rtl.json", result)
-    return result
-
-
 def finalize_tools(project: Path) -> dict[str, Any]:
     paths = project_paths(project)
     tools: dict[str, Any] = {}
@@ -377,7 +334,7 @@ def finalize_tools(project: Path) -> dict[str, Any]:
         }
 
     missing = []
-    producers = ["uhdm", "rtl"]
+    producers = ["uhdm"]
     producer_records = {}
     for producer in producers:
         path = paths["tools"] / f"producer-{producer}.json"
@@ -427,10 +384,7 @@ def finalize_tools(project: Path) -> dict[str, Any]:
         != uhdm.get("database_sha256")
     ):
         fail("UHDM database is missing, changed, or inconsistent")
-    expected_inputs = {
-        "uhdm": sorted(file_digest(source) for source in host_sources),
-        "rtl": sorted(file_digest(source) for source in host_sources),
-    }
+    expected_inputs = sorted(file_digest(source) for source in host_sources)
     for producer, record in producer_records.items():
         if (
             record.get("schema_version") != 1
@@ -442,7 +396,7 @@ def finalize_tools(project: Path) -> dict[str, Any]:
         if not all(isinstance(value, str) for value in actual_values):
             fail(f"{producer} producer input digest is invalid")
         actual = sorted(actual_values)
-        if actual != expected_inputs[producer]:
+        if actual != expected_inputs:
             fail(f"{producer} producer inputs do not match current manifest")
     pending_graph = load_json(paths["graph_manifest"])
     pending_graph["tools"] = tools
@@ -469,8 +423,6 @@ def _main(kind: str, argv: list[str] | None = None) -> int:
     try:
         result = (
             produce_uhdm(Path(args.project).resolve())
-            if kind == "uhdm"
-            else produce_rtl(Path(args.project).resolve())
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if all(
@@ -485,6 +437,3 @@ def _main(kind: str, argv: list[str] | None = None) -> int:
 def uhdm_main(argv: list[str] | None = None) -> int:
     return _main("uhdm", argv)
 
-
-def rtl_main(argv: list[str] | None = None) -> int:
-    return _main("rtl", argv)
