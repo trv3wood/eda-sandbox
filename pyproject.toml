@@ -22,6 +22,19 @@ eda-query = "eda_query.cli:main"
 eda-uhdm = "eda_query.uhdm_runtime:main"
 eda-uhdm-produce = "systemc_tlm_agent.tool_producers:uhdm_main"
 eda-rtl-produce = "systemc_tlm_agent.tool_producers:rtl_main"
+eda-spec-produce = "systemc_tlm_agent.graph_extract:spec_main"
+
+[project.optional-dependencies]
+graph = [
+  "duckdb>=1.0",
+  "networkx>=3.2",
+  "openai>=1.40",
+]
+vector = [
+  "duckdb>=1.0",
+  "faiss-cpu>=1.8",
+  "sentence-transformers>=3.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

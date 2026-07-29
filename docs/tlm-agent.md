@@ -13,7 +13,7 @@ C++17/SystemC 骨架。
   时钟、信号、流水线或握手重新推测行为。
 - **默认 loosely timed**：v2 handoff 固定为 TLM-2.0 `b_transport` 和 delay
   annotation，不表达周期级调度。
-- **审批可失效**：输入、facts、evidence、architecture 或 conflict 任一改变，均会
+- **审批可失效**：输入、canonical graph、architecture 或 conflict 任一改变，均会
   使批准哈希过期并阻断生成。
 
 当前生成器生成事务接口、功能组件、时延和 smoke test 的骨架；具体算法、队列策略、
@@ -26,7 +26,7 @@ C++17/SystemC 骨架。
 Spec / register map / RTL / EDA bundle
              │ extract
              ▼
-  facts + source-located evidence
+  source-located canonical graph
              │ Architect（推理、冲突决策）
              ▼
   architecture.yaml: 八类合同 + tlm_handoff
@@ -54,9 +54,10 @@ PROJECT/
 │   ├── include/, src/, tests/, CMakeLists.txt
 │   └── generation.yaml
 └── .systemc-agent/
-    ├── facts/{documents,registers,rtl,summary}.json
-    ├── evidence.jsonl
-    ├── query-evidence.jsonl
+    ├── graph/{manifest,document_tree}.json
+    ├── graph/{text_units,spec_entities,spec_relationships}.jsonl
+    ├── graph/{rtl_entities,rtl_relationships,cross_source_relationships}.jsonl
+    ├── graph/{entities,relationships}.jsonl
     ├── contracts/{architecture,conflicts,approval}.yaml
     ├── tools/
     └── verification/report.json
@@ -79,35 +80,37 @@ scripts/systemc-tlm-agent verify PROJECT --backend auto
 `run` 会执行 extraction 和草案创建，但在 architecture gate 或 approval gate 返回
 退出码 `2`，不会绕过人工决策。`status` 只报告状态与门禁错误，不改变项目。
 
-## 事实与 EDA 工具
+## 规范图与 EDA 工具
 
-`extract` 会读取 DOCX 段落/表格和 XLSX 单元格，并登记 manifest 中的 RTL 输入。
+`extract` 会读取 DOCX/OOXML、Markdown 和 XLSX，生成 document tree 与 text
+units，并登记 manifest 中的 RTL 输入。
 RTL 结构只接受通过固定 UHDM 流程产生的事实：Surelog 生成数据库，
 Surelog 的零错误摘要和非空二进制 `.uhdm` 验证 elaboration，`uhdm-lint` 检查数据库，
 `uhdm-hier --line` 验证请求的 top，最后由官方 UHDM Python VPI binding 导出
-module/port/parameter/instance 结构并生成 evidence ID。不存在文本或正则 fallback。
+module/instance/port/signal/parameter/package 实体和确定性关系。不存在 RTL 文本或
+正则 fallback。
 
 主机没有工具时，先提取但跳过本地工具，再使用角色镜像产生独立结果：
 
 ```bash
 scripts/systemc-tlm-agent extract PROJECT --skip-tools
+scripts/eda-run --work WORK agent eda-spec-produce /workspace/PROJECT
 scripts/eda-run --work WORK uhdm eda-uhdm-produce /workspace/PROJECT
 scripts/eda-run --work WORK rtl  eda-rtl-produce  /workspace/PROJECT
 scripts/eda-run --work WORK agent \
   systemc-tlm-agent tools finalize /workspace/PROJECT
 ```
 
-`--skip-tools` 只产生 `status: pending` 的 RTL 清单。CLI 校验标记、top、
-数据库/结构摘要和 producer 输入摘要全部通过，且 `tools finalize` 发布
+`--skip-tools` 只产生 pending graph。CLI 校验 Spec source span、top、
+数据库/结构摘要、producer 输入摘要和图引用完整性全部通过，且 `tools finalize` 发布
 `status: ready` 后，architecture 才能批准。任一步失败都会保留失败状态并阻断审批。
 
-`eda-query` 只查询已有的 Yosys/Verilator JSON。成功的 QueryResult 可以经
-`systemc-tlm-agent evidence record` 写入 `query-evidence.jsonl`。UHDM Python
-脚本输出仅用于探索和定位，必须回到 RTL/Spec 的源定位后才能成为合同证据。
+`eda-query` 只查询已有的 Yosys/Verilator JSON。UHDM Python 脚本输出仅用于
+探索和定位；合同只能引用 canonical graph 中带 source span 的实体。
 
-## Architecture v3、合同测试与 Implementer handoff
+## Architecture v4、合同测试与 Implementer handoff
 
-`architect` 创建 `schema_version: 3` 草案。审批时，除了八类合同和无未决冲突外，
+`architect` 创建 `schema_version: 4` 草案。审批时，除了八类合同和无未决冲突外，
 还必须存在完整 `tlm_handoff`：
 
 - `policy`：固定 `loosely-timed-tlm-2.0`、`b_transport`，并禁止 RTL/周期级细节。
@@ -134,7 +137,8 @@ validator 会双向检查 scenario 与 test 的覆盖，批准哈希包含测试
 
 批准后的 `generate` 把 `tlm_handoff` 原样写到
 `model/implementation-handoff.yaml`。这是 Implementer 的唯一行为输入；如果它不足
-以实现，Implementer 必须请求 Architect 补充并重新批准，而不是从 facts/RTL 作决定。
+以实现，Implementer 必须请求 Architect 补充并重新批准，而不是越过 canonical
+graph 从原始 RTL 自行决定。
 
 ## 生成与验证
 

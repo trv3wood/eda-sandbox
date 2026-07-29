@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import argparse
-import copy
 import json
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
-from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +15,7 @@ from .io import (
     relative_to_project, resolve_inputs,
 )
 from .uhdm_export import export_uhdm_structure
+from .graph_finalize import finalize_graph
 
 
 def _run(
@@ -352,30 +351,30 @@ def produce_rtl(project: Path) -> dict[str, Any]:
 
 def finalize_tools(project: Path) -> dict[str, Any]:
     paths = project_paths(project)
-    rtl_path = paths["facts"] / "rtl.json"
-    facts = load_json(rtl_path)
     tools: dict[str, Any] = {}
 
     def fail(reason: str) -> None:
-        facts.update(
-            {
-                "schema_version": 2,
-                "status": "failed",
-                "backend": "uhdm",
-                "files": [],
-                "top_modules": [],
-                "tools": tools,
-                "failure": reason,
-            }
-        )
-        dump_json(rtl_path, facts)
-        summary_path = paths["facts"] / "summary.json"
-        if summary_path.exists():
-            summary = load_json(summary_path)
-            summary["rtl_status"] = "failed"
-            summary["rtl_module_count"] = 0
-            dump_json(summary_path, summary)
+        if paths["graph_manifest"].is_file():
+            manifest = load_json(paths["graph_manifest"])
+            manifest["status"] = "failed"
+            manifest.setdefault("validation", {}).setdefault("errors", []).append(reason)
+            dump_json(paths["graph_manifest"], manifest)
         raise ValueError(reason)
+
+    graph_manifest = load_json(paths["graph_manifest"])
+    rtl_required = graph_manifest.get("producers", {}).get("rtl", {}).get(
+        "status"
+    ) != "skipped"
+    if not rtl_required:
+        finalized = finalize_graph(project, structure=None, sources=[])
+        return {
+            "status": "finalized",
+            "tools": {},
+            "graph": {
+                "status": finalized["status"],
+                "content_digest": finalized["content_digest"],
+            },
+        }
 
     missing = []
     producers = ["uhdm", "rtl"]
@@ -445,105 +444,22 @@ def finalize_tools(project: Path) -> dict[str, Any]:
         actual = sorted(actual_values)
         if actual != expected_inputs[producer]:
             fail(f"{producer} producer inputs do not match current manifest")
-    sources_by_digest: dict[str, list[Path]] = {}
-    for source in host_sources:
-        sources_by_digest.setdefault(file_digest(source), []).append(source)
-    files_by_path: dict[Path, dict[str, Any]] = {
-        source: {"path": relative_to_project(project, source), "modules": []}
-        for source in host_sources
+    pending_graph = load_json(paths["graph_manifest"])
+    pending_graph["tools"] = tools
+    dump_json(paths["graph_manifest"], pending_graph)
+    graph_manifest = finalize_graph(
+        project,
+        structure=structure,
+        sources=host_sources,
+    )
+    return {
+        "status": "finalized",
+        "tools": tools,
+        "graph": {
+            "status": graph_manifest["status"],
+            "content_digest": graph_manifest["content_digest"],
+        },
     }
-    rtl_evidence = []
-    from .extractors import _evidence
-
-    def normalize_locations(value: Any) -> Any:
-        if isinstance(value, list):
-            return [normalize_locations(item) for item in value]
-        if not isinstance(value, dict):
-            return value
-        normalized = {
-            key: normalize_locations(item) for key, item in value.items()
-        }
-        digest = normalized.get("sha256")
-        matches = sources_by_digest.get(digest, [])
-        if len(matches) == 1:
-            normalized["path"] = relative_to_project(project, matches[0])
-        return normalized
-
-    normalized_modules = normalize_locations(copy.deepcopy(structure["modules"]))
-    normalized_tops = normalize_locations(copy.deepcopy(structure["top_modules"]))
-    for raw_module in normalized_modules:
-        digest = raw_module.get("sha256")
-        matches = sources_by_digest.get(digest, [])
-        if len(matches) > 1 and raw_module.get("path"):
-            source_name = Path(raw_module["path"]).name
-            matches = [source for source in matches if source.name == source_name]
-        if len(matches) != 1:
-            fail(
-                f"UHDM module {raw_module.get('name')} cannot be mapped to one RTL input"
-            )
-        source = matches[0]
-        module = dict(raw_module)
-        module_name = (
-            module.get("definition") or module.get("name") or ""
-        ).rsplit("@", 1)[-1]
-        line = module.get("line")
-        evidence = _evidence(
-            kind="rtl",
-            path=source,
-            project_dir=project,
-            locator=f"line:{line or 'unknown'}/module:{module_name}",
-            text=f"UHDM module definition {module_name}",
-            extractor="uhdm-python-vpi/1",
-        )
-        module["name"] = module_name
-        module["evidence"] = evidence.id
-        files_by_path[source]["modules"].append(module)
-        rtl_evidence.append(asdict(evidence))
-
-    database = dict(structure["database"])
-    recorded_database = Path(uhdm.get("database", database["path"]))
-    database["path"] = (
-        str(recorded_database)
-        if not recorded_database.is_absolute()
-        else relative_to_project(project, recorded_database)
-    )
-    facts.update(
-        {
-            "schema_version": 2,
-            "status": "ready",
-            "backend": "uhdm",
-            "database": database,
-            "top_modules": normalized_tops,
-            "files": [
-                files_by_path[path]
-                for path in sorted(files_by_path)
-                if files_by_path[path]["modules"]
-            ],
-            "tools": tools,
-        }
-    )
-    facts["uhdm_modules"] = normalized_modules
-    dump_json(rtl_path, facts)
-    existing_evidence = []
-    if paths["evidence"].exists():
-        for line in paths["evidence"].read_text(encoding="utf-8").splitlines():
-            if line.strip():
-                item = json.loads(line)
-                if item.get("source_kind") != "rtl":
-                    existing_evidence.append(item)
-    with paths["evidence"].open("w", encoding="utf-8") as stream:
-        for item in sorted(
-            [*existing_evidence, *rtl_evidence], key=lambda value: value["id"]
-        ):
-            stream.write(json.dumps(item, ensure_ascii=False, sort_keys=True) + "\n")
-    summary_path = paths["facts"] / "summary.json"
-    if summary_path.exists():
-        summary = load_json(summary_path)
-        summary["rtl_status"] = "ready"
-        summary["rtl_module_count"] = len(normalized_modules)
-        summary["evidence_count"] = len(existing_evidence) + len(rtl_evidence)
-        dump_json(summary_path, summary)
-    return {"status": "finalized", "tools": tools}
 
 
 def _main(kind: str, argv: list[str] | None = None) -> int:

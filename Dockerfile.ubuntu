@@ -13,7 +13,8 @@ RUN apt-get update && \
 COPY pyproject.toml /opt/systemc-agent/
 COPY src /opt/systemc-agent/src
 COPY scripts/regress.sh /opt/systemc-agent/scripts/regress.sh
-RUN python3 -m pip install --break-system-packages --no-cache-dir /opt/systemc-agent
+RUN python3 -m pip install --break-system-packages --no-cache-dir \
+    '/opt/systemc-agent[graph]'
 ENV IMAGE_REVISION=${IMAGE_REVISION}
 CMD ["/bin/bash"]
 

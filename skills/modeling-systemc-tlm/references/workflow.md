@@ -5,8 +5,16 @@ The project directory is the unit of work.
 ```text
 manifest.yaml
 .systemc-agent/
-  facts/{documents,registers,rtl,summary}.json
-  evidence.jsonl
+  graph/
+    manifest.json
+    document_tree.json
+    text_units.jsonl
+    spec_{entities,relationships}.jsonl
+    rtl_{entities,relationships}.jsonl
+    cross_source_relationships.jsonl
+    {entities,relationships}.jsonl
+    store/{entities,relationships,text_units}.parquet
+    index/{entities,chunks}.faiss
   contracts/architecture.yaml
   contracts/conflicts.yaml
   contracts/approval.yaml
@@ -33,21 +41,25 @@ available documents/register maps, records RTL as a missing input, and skips
 structural EDA tools. Extraction is deterministic and records source digests
 and locators. Re-run extraction whenever an input changes.
 
-With RTL inputs, `extract --skip-tools` creates a pending RTL inventory only.
+With RTL inputs, `extract --skip-tools` creates source-located document units
+and a pending graph manifest.
 The standard producer flow must restore and elaborate the UHDM database with
 the generated binary `.uhdm`, lint it, verify the requested top through
 `uhdm-hier --line`, and export structure through the official UHDM Python
-binding. There is no text or regular-expression fallback. Architecture
-validation and approval require ready UHDM facts.
+binding. The Spec producer uses a fixed JSON Schema and rejects output without
+exact source spans. There is no RTL text or regular-expression fallback.
+Architecture validation and approval require a ready canonical graph.
 
 Architecture is a human/agent-authored decision artifact. Each complete claim
-has one or more `evidence_ids`. Missing RTL is unresolved evidence, not
+has one or more `evidence_ids` resolving to source-backed graph entities.
+Missing RTL is unresolved evidence, not
 `not_applicable`; an empty model partition continues to block approval and
 generation. Use `not_applicable` only with a reason in `summary`.
 
-Generation requires `approval.yaml`. Approval hashes the manifest, extracted
-facts, architecture, conflicts, and every Architect-owned contract-testbench
-file. Any subsequent edit makes approval stale.
+Generation requires `approval.yaml`. Approval hashes the manifest, canonical
+graph JSON/JSONL, current input digests, architecture, conflicts, and every
+Architect-owned contract-testbench file. Parquet and FAISS indexes are
+rebuildable and are not approval inputs.
 
 Verification levels:
 

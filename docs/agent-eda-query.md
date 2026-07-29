@@ -108,10 +108,9 @@ should inspect both `uhdmtopModules` (elaborated instances) and
 `uhdmallModules` (definitions) when the question spans connectivity and
 source-level behavior.
 
-Raw UHDM output is exploration, not extractor-owned evidence. It may locate a
-process, enum, assignment, or source line, but the agent must confirm the
-claim against extractor-owned RTL/specification evidence. This avoids making
-arbitrary script output a self-certifying evidence source.
+Raw UHDM output is exploration, not a canonical graph entity. It may locate a
+process, enum, assignment, or source line, but contracts must cite a
+source-backed entity produced by the fixed graph extraction pipeline.
 
 ## Production outputs
 
@@ -122,19 +121,12 @@ Surelog with full elaboration, validates its non-empty binary database and
 through the official Python binding. It leaves `surelog.uhdm` intact;
 `eda-rtl-produce` independently runs Verilator and Yosys.
 
-## Evidence bridge
+## Canonical graph boundary
 
-Only successful, non-empty Yosys/Verilator `QueryResult` files can be promoted:
-
-```bash
-systemc-tlm-agent evidence record PROJECT \
-  --result ports.json \
-  --statement "TopModule exposes the elaborated request and response ports."
-```
-
-Recording revalidates the result ID and source SHA-256. Records are appended
-idempotently to `.systemc-agent/query-evidence.jsonl` and participate in the
-approval hash. UHDM runner logs are intentionally rejected by this bridge.
+Yosys/Verilator QueryResult and UHDM runner logs are never promoted into a
+second evidence store. They are independent checks and discovery aids. Follow
+their source locations back to `graph/entities.jsonl`; only source-backed
+graph entity IDs may appear in architecture contracts.
 
 ## Limits
 

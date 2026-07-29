@@ -116,9 +116,6 @@ def project_paths(project_dir: Path) -> dict[str, Path]:
         "root": root,
         "manifest": root / "manifest.yaml",
         "state": state,
-        "facts": state / "facts",
-        "evidence": state / "evidence.jsonl",
-        "query_evidence": state / "query-evidence.jsonl",
         "contracts": state / "contracts" / "architecture.yaml",
         "conflicts": state / "contracts" / "conflicts.yaml",
         "approval": state / "contracts" / "approval.yaml",
@@ -127,4 +124,8 @@ def project_paths(project_dir: Path) -> dict[str, Path]:
         "model": root / "model",
         "verification": state / "verification" / "report.json",
         "tools": state / "tools",
+        "graph": state / "graph",
+        "graph_manifest": state / "graph" / "manifest.json",
+        "graph_entities": state / "graph" / "entities.jsonl",
+        "graph_relationships": state / "graph" / "relationships.jsonl",
     }

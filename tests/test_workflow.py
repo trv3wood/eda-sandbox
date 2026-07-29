@@ -1,21 +1,22 @@
 from __future__ import annotations
 
-import json
 import tempfile
 import unittest
-from dataclasses import asdict
 from pathlib import Path
 
 from systemc_tlm_agent.cli import command_init
-from systemc_tlm_agent.extractors import _evidence, extract_project
+from systemc_tlm_agent.extractors import extract_project
+from systemc_tlm_agent.graph_finalize import finalize_graph
+from systemc_tlm_agent.graph_schema import entity, relationship, write_jsonl
 from systemc_tlm_agent.generator import generate_model
 from systemc_tlm_agent.io import (
-    dump_json,
     dump_yaml,
+    file_digest,
     load_json,
     load_yaml,
     object_digest,
     project_paths,
+    resolve_inputs,
 )
 from systemc_tlm_agent.workflow import (
     CONTRACT_CATEGORIES,
@@ -36,57 +37,82 @@ class WorkflowTest(unittest.TestCase):
     @staticmethod
     def _publish_uhdm_fixture(project: Path, module_name: str) -> str:
         paths = project_paths(project)
-        rtl = load_json(paths["facts"] / "rtl.json")
-        source = Path(rtl["design_rtl"][0])
-        evidence = _evidence(
-            kind="rtl",
-            path=source,
-            project_dir=project,
-            locator=f"line:1/module:{module_name}",
-            text=f"UHDM module definition {module_name}",
-            extractor="uhdm-python-vpi/1",
-        )
-        tools = {
-            name: {"status": "passed"}
-            for name in (
-                "surelog",
-                "uhdm_elab",
-                "uhdm_lint",
-                "uhdm_hier",
-                "uhdm",
-                "verilator",
-                "yosys",
-            )
+        manifest = load_yaml(paths["manifest"])
+        source = resolve_inputs(
+            project,
+            manifest["rtl"],
+            directory_suffixes={".v", ".sv"},
+        )[0]
+        source_ref = {
+            "source_path": str(source),
+            "source_digest": file_digest(source),
+            "locator": "line:1",
+            "line": 1,
         }
-        rtl.update(
-            {
-                "schema_version": 2,
-                "status": "ready",
-                "backend": "uhdm",
-                "files": [
-                    {
-                        "path": str(source),
-                        "modules": [
-                            {
-                                "name": module_name,
-                                "definition": f"work@{module_name}",
-                                "line": 1,
-                                "ports": [],
-                                "parameters": [],
-                                "instances": [],
-                                "evidence": evidence.id,
-                            }
-                        ],
-                    }
-                ],
-                "tools": tools,
-            }
+        provenance = {
+            "extractor": "uhdm-python-vpi-graph/1",
+            "deterministic": True,
+            "source_backed": True,
+        }
+        file_entity = entity(
+            entity_type="File",
+            name=source.name,
+            properties={"path": str(source), "sha256": file_digest(source)},
+            source_refs=[source_ref],
+            provenance=provenance,
         )
-        dump_json(paths["facts"] / "rtl.json", rtl)
-        paths["evidence"].write_text(
-            json.dumps(asdict(evidence), sort_keys=True) + "\n", encoding="utf-8"
+        module = entity(
+            entity_type="Module",
+            name=module_name,
+            properties={"definition": f"work@{module_name}"},
+            source_refs=[source_ref],
+            provenance=provenance,
         )
-        return evidence.id
+        instance = entity(
+            entity_type="Instance",
+            name=module_name,
+            properties={
+                "path": module_name,
+                "definition": module_name,
+                "is_top": True,
+            },
+            source_refs=[source_ref],
+            provenance=provenance,
+        )
+        edges = [
+            relationship(
+                relation_type="OF",
+                source_id=instance["id"],
+                target_id=module["id"],
+                source_refs=[source_ref],
+                provenance=provenance,
+            ),
+            relationship(
+                relation_type="LOCATED_IN",
+                source_id=module["id"],
+                target_id=file_entity["id"],
+                source_refs=[source_ref],
+                provenance=provenance,
+            ),
+            relationship(
+                relation_type="LOCATED_IN",
+                source_id=instance["id"],
+                target_id=file_entity["id"],
+                source_refs=[source_ref],
+                provenance=provenance,
+            ),
+        ]
+        write_jsonl(
+            paths["graph"] / "rtl_entities.jsonl",
+            [file_entity, module, instance],
+        )
+        write_jsonl(paths["graph"] / "rtl_relationships.jsonl", edges)
+        manifest = load_json(paths["graph_manifest"])
+        manifest["producers"]["rtl"] = {"status": "passed"}
+        from systemc_tlm_agent.io import dump_json
+        dump_json(paths["graph_manifest"], manifest)
+        finalize_graph(project, structure=None, sources=[source])
+        return module["id"]
 
     @staticmethod
     def _write_contract_testbench(project: Path, scenario_id: str, test_id: str) -> None:
@@ -170,13 +196,9 @@ class WorkflowTest(unittest.TestCase):
             self.assertFalse(summary["rtl_available"])
             self.assertEqual(summary["missing_inputs"], ["rtl"])
 
-            rtl = load_json(project_paths(project)["facts"] / "rtl.json")
-            self.assertEqual(rtl["files"], [])
-            for tool in ("surelog", "uhdm_elab", "uhdm_hier", "verilator", "yosys"):
-                self.assertEqual(rtl["tools"][tool]["status"], "skipped")
-                self.assertEqual(
-                    rtl["tools"][tool]["reason"], "no RTL inputs were provided"
-                )
+            graph = load_json(project_paths(project)["graph_manifest"])
+            self.assertEqual(graph["status"], "ready")
+            self.assertEqual(graph["producers"]["rtl"]["status"], "skipped")
 
             create_architecture_draft(project)
             errors = validate_architecture(project)
@@ -240,10 +262,11 @@ class WorkflowTest(unittest.TestCase):
             )
 
             # Even a matching approval hash cannot bypass a newly introduced
-            # architecture gate (for example, legacy facts without UHDM).
-            rtl_facts = load_json(paths["facts"] / "rtl.json")
-            rtl_facts["status"] = "pending"
-            dump_json(paths["facts"] / "rtl.json", rtl_facts)
+            # architecture gate (for example, a graph marked pending).
+            graph_manifest = load_json(paths["graph_manifest"])
+            graph_manifest["status"] = "pending"
+            from systemc_tlm_agent.io import dump_json
+            dump_json(paths["graph_manifest"], graph_manifest)
             approval = load_yaml(paths["approval"])
             approval["content_sha256"] = object_digest(approval_payload(project))
             dump_yaml(paths["approval"], approval)
@@ -251,8 +274,8 @@ class WorkflowTest(unittest.TestCase):
             self.assertFalse(valid)
             self.assertIn("current architecture gates fail", reason)
 
-            rtl_facts["status"] = "ready"
-            dump_json(paths["facts"] / "rtl.json", rtl_facts)
+            graph_manifest["status"] = "ready"
+            dump_json(paths["graph_manifest"], graph_manifest)
             approve(project, approver="unit-test")
             architecture["categories"]["functional_intent"]["summary"] = "changed"
             dump_yaml(paths["contracts"], architecture)
@@ -282,7 +305,10 @@ class WorkflowTest(unittest.TestCase):
             architecture = load_yaml(paths["contracts"])
             architecture["schema_version"] = 1
             dump_yaml(paths["contracts"], architecture)
-            self.assertIn("schema_version must be 3 for approval", validate_architecture(project))
+            self.assertIn(
+                "schema_version must be 4 for graph-backed approval",
+                validate_architecture(project),
+            )
 
     def test_channel_must_resolve_tlm_endpoints(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -337,10 +363,8 @@ class WorkflowTest(unittest.TestCase):
 
             errors = validate_architecture(project)
 
-            self.assertIn("RTL extraction requires a ready UHDM result", errors)
-            self.assertIn(
-                "RTL facts backend must be uhdm; no fallback is allowed", errors
-            )
+            self.assertIn("canonical graph must be ready", errors)
+            self.assertIn("RTL graph producer must pass or be explicitly skipped", errors)
 
 
 if __name__ == "__main__":
