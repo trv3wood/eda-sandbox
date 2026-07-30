@@ -15,7 +15,6 @@ RUN dnf -y install \
         gcc-c++ \
         git \
         make \
-        ninja-build \
         which && \
     dnf clean all && \
     rm -rf /var/cache/dnf

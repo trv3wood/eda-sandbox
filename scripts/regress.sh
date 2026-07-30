@@ -129,7 +129,7 @@ case "${profile}" in
     )
     ;;
   scc)
-    require_tools cmake ninja c++
+    require_tools cmake c++
     scc_home="${EDA_SCC_HOME:-/opt/scc}"
     if [[ -d "${scc_home}/scc" ]]; then
       scc_prefix="${scc_home}/scc"
@@ -142,7 +142,11 @@ case "${profile}" in
     test -n "$(find "${scc_deps}" -type f \
       -path '*/cmake/SystemCLanguage/SystemCLanguageConfig.cmake' -print -quit)"
     printf '  CMake:   %s\n' "$(cmake --version | head -n 1)"
-    printf '  Ninja:   %s\n' "$(ninja --version)"
+    if command -v ninja >/dev/null 2>&1; then
+      printf '  Ninja:   %s\n' "$(ninja --version)"
+    else
+      printf '  Ninja:   unavailable; using CMake default generator\n'
+    fi
     printf '  SCC:     %s\n' "${scc_prefix}"
     probe_dir="$(mktemp -d)"
     trap 'rm -rf "${probe_dir}"' EXIT
@@ -166,7 +170,11 @@ case "${profile}" in
       '#include <scc/report.h>' \
       'int sc_main(int, char**) { return 0; }' \
       >"${probe_dir}/main.cpp"
-    cmake -S "${probe_dir}" -B "${probe_dir}/build" -G Ninja >/dev/null
+    cmake_args=(-S "${probe_dir}" -B "${probe_dir}/build")
+    if command -v ninja >/dev/null 2>&1; then
+      cmake_args+=(-G Ninja)
+    fi
+    cmake "${cmake_args[@]}" >/dev/null
     cmake --build "${probe_dir}/build" >/dev/null
     ;;
   systemc)
