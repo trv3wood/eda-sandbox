@@ -28,6 +28,9 @@ def extract_project(project_dir: Path, *, run_tools: bool = True) -> dict[str, A
     spec_enabled = spec_config.get("enabled", False)
     if not isinstance(spec_enabled, bool):
         raise ValueError("manifest graph.spec_extraction.enabled must be boolean")
+    from .tool_producers import _rtl_backend
+
+    rtl_backend = _rtl_backend(manifest)
     document_paths = resolve_inputs(project_dir, manifest.get("documents", []))
     register_paths = resolve_inputs(project_dir, manifest.get("registers", []))
     rtl_files = resolve_inputs(
@@ -136,6 +139,7 @@ def extract_project(project_dir: Path, *, run_tools: bool = True) -> dict[str, A
             },
             "rtl": {
                 "status": "pending" if rtl_files else "skipped",
+                "backend": rtl_backend,
                 "reason": None if rtl_files else "no RTL inputs",
             },
             "cross_source": {"status": "pending"},
@@ -152,16 +156,17 @@ def extract_project(project_dir: Path, *, run_tools: bool = True) -> dict[str, A
         "rtl_file_count": len(rtl_files),
         "testbench_file_count": len(testbench_files),
         "rtl_status": graph_manifest["producers"]["rtl"]["status"],
+        "rtl_backend": rtl_backend,
         "graph_status": graph_manifest["status"],
         "missing_inputs": [] if rtl_files else ["rtl"],
     }
     if run_tools and rtl_files:
         from .graph.extract import produce_spec_graph
-        from .tool_producers import finalize_tools, produce_uhdm
+        from .tool_producers import finalize_tools, produce_rtl
 
         if text_units and spec_enabled:
             produce_spec_graph(project_dir)
-        produce_uhdm(project_dir)
+        produce_rtl(project_dir)
         finalize_tools(project_dir)
         finalized = load_json(paths["graph_manifest"])
         summary["graph_status"] = finalized["status"]

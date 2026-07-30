@@ -22,20 +22,33 @@ def _run(
     command: list[str],
     cwd: Path,
     log: Path,
+    *,
+    env: dict[str, str] | None = None,
+    timeout: int | None = None,
 ) -> dict[str, Any]:
     executable = shutil.which(command[0])
     if not executable:
         return {"status": "unavailable", "command": command}
     log.parent.mkdir(parents=True, exist_ok=True)
     with log.open("w", encoding="utf-8") as stream:
-        result = subprocess.run(
-            command,
-            cwd=cwd,
-            text=True,
-            stdout=stream,
-            stderr=subprocess.STDOUT,
-            check=False,
-        )
+        try:
+            result = subprocess.run(
+                command,
+                cwd=cwd,
+                text=True,
+                stdout=stream,
+                stderr=subprocess.STDOUT,
+                check=False,
+                env=env,
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired:
+            return {
+                "status": "timeout",
+                "command": command,
+                "log": str(log),
+                "timeout_seconds": timeout,
+            }
     return {
         "status": "passed" if result.returncode == 0 else "failed",
         "returncode": result.returncode,
@@ -164,6 +177,26 @@ def _inputs(project: Path) -> tuple[dict[str, Any], list[Path], list[Path], list
     if not sources:
         raise ValueError("eda_compile sources are empty after exclude_sources")
     return manifest, sources, include_dirs, defines
+
+
+def _rtl_backend(manifest: dict[str, Any]) -> str:
+    """解析 RTL producer 后端；旧 manifest 保持 UHDM 兼容语义。"""
+    graph = manifest.get("graph", {})
+    if graph is None:
+        graph = {}
+    if not isinstance(graph, dict):
+        raise ValueError("manifest graph must be a mapping")
+    config = graph.get("rtl_extraction")
+    if config is None:
+        return "uhdm"
+    if not isinstance(config, dict):
+        raise ValueError("manifest graph.rtl_extraction must be a mapping")
+    backend = config.get("backend", "vcs-vpi")
+    if backend not in {"vcs-vpi", "uhdm"}:
+        raise ValueError(
+            "manifest graph.rtl_extraction.backend must be vcs-vpi or uhdm"
+        )
+    return str(backend)
 
 
 def _version(command: list[str]) -> str:
@@ -306,6 +339,308 @@ def produce_uhdm(project: Path) -> dict[str, Any]:
     return result
 
 
+def _vcs_home() -> Path:
+    """定位 VCS 安装根目录和标准 VPI 头文件。"""
+    configured = os.environ.get("VCS_HOME")
+    if configured:
+        root = Path(configured).resolve()
+    else:
+        executable = shutil.which("vcs")
+        if not executable:
+            raise RuntimeError("VCS is unavailable; configure the研发网 VCS environment")
+        root = Path(executable).resolve().parent.parent
+    header = root / "include" / "vpi_user.h"
+    if not header.is_file():
+        raise RuntimeError(f"VCS VPI header is unavailable: {header}")
+    return root
+
+
+def _vcs_config(manifest: dict[str, Any]) -> tuple[list[str], int]:
+    compile_config = manifest.get("eda_compile") or {}
+    vcs_args = compile_config.get("vcs_args", [])
+    if not isinstance(vcs_args, list) or not all(
+        isinstance(value, str) and value for value in vcs_args
+    ):
+        raise ValueError("eda_compile.vcs_args must be a list of strings")
+    graph = manifest.get("graph") or {}
+    rtl_config = graph.get("rtl_extraction") or {}
+    timeout = rtl_config.get("timeout_seconds", 1800)
+    if not isinstance(timeout, int) or isinstance(timeout, bool) or timeout <= 0:
+        raise ValueError(
+            "graph.rtl_extraction.timeout_seconds must be a positive integer"
+        )
+    return vcs_args, timeout
+
+
+def _normalize_vcs_structure(
+    raw: dict[str, Any],
+    *,
+    reference_top: str,
+    executable: Path,
+) -> dict[str, Any]:
+    """把 VCS 的 elaborated VPI 视图归一化为后端无关结构契约。"""
+    if not isinstance(raw, dict):
+        raise ValueError("VCS VPI exporter output must be a JSON object")
+    raw_tops = raw.get("top_modules")
+    raw_packages = raw.get("packages", [])
+    if not isinstance(raw_tops, list) or not all(
+        isinstance(item, dict) for item in raw_tops
+    ):
+        raise ValueError("VCS VPI exporter top_modules must be a list of objects")
+    if not isinstance(raw_packages, list) or not all(
+        isinstance(item, dict) for item in raw_packages
+    ):
+        raise ValueError("VCS VPI exporter packages must be a list of objects")
+
+    def records(value: object, field: str) -> list[dict[str, Any]]:
+        if value is None:
+            return []
+        if not isinstance(value, list) or not all(
+            isinstance(item, dict) for item in value
+        ):
+            raise ValueError(f"VCS VPI field {field} must be a list of objects")
+        return value
+
+    def named(item: dict[str, Any]) -> dict[str, Any]:
+        name = item.get("name")
+        if not isinstance(name, str) or not name:
+            raise ValueError("VCS VPI named object is missing a name")
+        result: dict[str, Any] = {"name": name.rsplit(".", 1)[-1]}
+        path = item.get("path")
+        if isinstance(path, str) and path:
+            result["path"] = path
+        line = item.get("line")
+        if isinstance(line, int) and not isinstance(line, bool) and line > 0:
+            result["line"] = line
+        size = item.get("size")
+        if isinstance(size, int) and not isinstance(size, bool) and size > 0:
+            result["size"] = size
+        direction = item.get("direction")
+        if isinstance(direction, str) and direction:
+            result["direction"] = direction
+        return result
+
+    definitions: dict[str, dict[str, Any]] = {}
+
+    def module(item: dict[str, Any]) -> dict[str, Any]:
+        raw_definition = item.get("definition") or item.get("name")
+        if not isinstance(raw_definition, str) or not raw_definition:
+            raise ValueError("VCS VPI module is missing a definition")
+        definition_name = raw_definition.rsplit("@", 1)[-1]
+        result = named(item)
+        result["definition"] = f"work@{definition_name}"
+        for field in ("ports", "parameters", "signals", "imports"):
+            values = [named(value) for value in records(item.get(field), field)]
+            unique = {
+                (
+                    value["name"],
+                    value.get("path"),
+                    value.get("line"),
+                    value.get("direction"),
+                    value.get("size"),
+                ): value
+                for value in values
+            }
+            result[field] = sorted(
+                unique.values(),
+                key=lambda value: (
+                    value["name"],
+                    str(value.get("path", "")),
+                    int(value.get("line", 0)),
+                ),
+            )
+        result["instances"] = [
+            module(child) for child in records(item.get("instances"), "instances")
+        ]
+        result["instances"].sort(
+            key=lambda value: (value["name"], value["definition"])
+        )
+        definition_record = {
+            key: value for key, value in result.items() if key != "instances"
+        }
+        existing = definitions.get(result["definition"])
+        if existing is None:
+            definitions[result["definition"]] = definition_record
+        return result
+
+    top_modules = [module(item) for item in raw_tops]
+    top_matches = [
+        item
+        for item in top_modules
+        if item["definition"].rsplit("@", 1)[-1] == reference_top
+    ]
+    if len(top_matches) != 1 or len(top_modules) != 1:
+        raise ValueError(
+            f"VCS elaborated view must contain exactly top {reference_top}"
+        )
+    packages = [named(item) for item in raw_packages]
+    packages.sort(key=lambda value: value["name"])
+    return {
+        "schema_version": 1,
+        "backend": "vcs-vpi",
+        "backend_artifact": {
+            "kind": "vcs-simv",
+            "path": str(executable),
+            "sha256": file_digest(executable),
+            "size": executable.stat().st_size,
+        },
+        "reference_top": reference_top,
+        "top_modules": top_modules,
+        "modules": sorted(definitions.values(), key=lambda value: value["definition"]),
+        "packages": packages,
+    }
+
+
+def produce_vcs(project: Path) -> dict[str, Any]:
+    """使用研发网 VCS elaboration 和零时刻 VPI 导出 RTL 结构。"""
+    manifest, sources, include_dirs, defines = _inputs(project)
+    vcs_args, timeout = _vcs_config(manifest)
+    paths = project_paths(project)
+    work = paths["tools"] / "vcs-work"
+    work.mkdir(parents=True, exist_ok=True)
+    top = (
+        manifest.get("reference_top")
+        or manifest.get("target_top")
+        or manifest.get("top")
+    )
+    vcs_home = _vcs_home()
+    compiler = shutil.which("cc")
+    if not compiler:
+        raise RuntimeError("C compiler cc is unavailable for the VCS VPI exporter")
+    source = Path(__file__).with_name("vcs_vpi_export.c")
+    if not source.is_file():
+        raise RuntimeError(f"packaged VCS VPI exporter is missing: {source}")
+    library = work / "libtlm_graph_vpi.so"
+    library.unlink(missing_ok=True)
+    compile_plugin = _run(
+        [
+            compiler,
+            "-std=c11",
+            "-fPIC",
+            "-shared",
+            "-I",
+            str(vcs_home / "include"),
+            str(source),
+            "-o",
+            str(library),
+        ],
+        work,
+        paths["tools"] / "vcs-vpi-compile.log",
+        timeout=timeout,
+    )
+    executable = work / "simv"
+    executable.unlink(missing_ok=True)
+    if compile_plugin.get("status") == "passed" and library.is_file():
+        vcs = _run(
+            [
+                "vcs",
+                "-full64",
+                "-sverilog",
+                *(str(path) for path in sources),
+                *(f"+incdir+{path}" for path in include_dirs),
+                *(f"+define+{value}" for value in defines),
+                *vcs_args,
+                "-top",
+                str(top),
+                "-load",
+                f"{library}:tlm_graph_register",
+                "-o",
+                str(executable),
+            ],
+            work,
+            paths["tools"] / "vcs.log",
+            timeout=timeout,
+        )
+    else:
+        vcs = {
+            "status": "skipped",
+            "reason": "VCS VPI exporter did not compile",
+        }
+
+    raw_path = work / "vcs-vpi-raw.json"
+    raw_path.unlink(missing_ok=True)
+    if vcs.get("status") == "passed" and executable.is_file():
+        environment = os.environ.copy()
+        environment["TLM_GRAPH_OUTPUT"] = str(raw_path)
+        simulation = _run(
+            [str(executable)],
+            work,
+            paths["tools"] / "vcs-vpi-run.log",
+            env=environment,
+            timeout=timeout,
+        )
+    else:
+        simulation = {
+            "status": "skipped",
+            "reason": "VCS elaboration did not produce simv",
+        }
+
+    structure_path = paths["tools"] / "rtl-structure.json"
+    if simulation.get("status") == "passed" and raw_path.is_file():
+        try:
+            structure = _normalize_vcs_structure(
+                load_json(raw_path),
+                reference_top=str(top),
+                executable=executable,
+            )
+            dump_json(structure_path, structure)
+            structure_status = {
+                "status": "passed",
+                "path": relative_to_project(project, structure_path),
+                "sha256": file_digest(structure_path),
+            }
+        except (json.JSONDecodeError, ValueError) as exc:
+            structure_status = {"status": "failed", "reason": str(exc)}
+    else:
+        structure_status = {
+            "status": "skipped",
+            "reason": "VCS VPI execution did not produce a structure artifact",
+        }
+    aggregate_passed = all(
+        item.get("status") == "passed"
+        for item in (compile_plugin, vcs, simulation, structure_status)
+    )
+    rtl = {
+        "status": "passed" if aggregate_passed else "failed",
+        "backend": "vcs-vpi",
+        "structure": structure_status,
+        "backend_artifact": (
+            {
+                "path": relative_to_project(project, executable),
+                "sha256": file_digest(executable),
+                "size": executable.stat().st_size,
+            }
+            if executable.is_file()
+            else None
+        ),
+    }
+    result = _producer_record(
+        "vcs-vpi",
+        {
+            "vpi_compile": compile_plugin,
+            "vcs_elaboration": vcs,
+            "vpi_export": simulation,
+            "rtl": rtl,
+        },
+        sources,
+        {
+            "vcs": _version(["vcs", "-ID"]),
+            "cc": _version([compiler, "--version"]),
+        },
+    )
+    dump_json(paths["tools"] / "producer-vcs-vpi.json", result)
+    return result
+
+
+def produce_rtl(project: Path) -> dict[str, Any]:
+    """按 manifest 选择唯一的 canonical RTL producer。"""
+    manifest = load_yaml(project / "manifest.yaml")
+    backend = _rtl_backend(manifest)
+    if backend == "vcs-vpi":
+        return produce_vcs(project)
+    return produce_uhdm(project)
+
+
 def finalize_tools(project: Path) -> dict[str, Any]:
     paths = project_paths(project)
     tools: dict[str, Any] = {}
@@ -333,8 +668,18 @@ def finalize_tools(project: Path) -> dict[str, Any]:
             },
         }
 
+    host_manifest = load_yaml(project / "manifest.yaml")
+    backend = _rtl_backend(host_manifest)
+    recorded_backend = graph_manifest.get("producers", {}).get("rtl", {}).get(
+        "backend"
+    )
+    if recorded_backend not in {None, backend}:
+        fail(
+            "RTL backend changed since extraction; rerun extract --skip-tools"
+        )
+    producer_name = "vcs-vpi" if backend == "vcs-vpi" else "uhdm"
     missing = []
-    producers = ["uhdm"]
+    producers = [producer_name]
     producer_records = {}
     for producer in producers:
         path = paths["tools"] / f"producer-{producer}.json"
@@ -345,45 +690,63 @@ def finalize_tools(project: Path) -> dict[str, Any]:
         tools.update(producer_records[producer].get("tools", {}))
     if missing:
         fail("missing producer result(s): " + ", ".join(missing))
-    uhdm = tools.get("uhdm", {})
-    if uhdm.get("status") != "passed":
-        fail("UHDM extraction gate did not pass")
-    structure_record = uhdm.get("structure", {})
+    rtl_gate = tools.get("rtl", {}) if backend == "vcs-vpi" else tools.get("uhdm", {})
+    if rtl_gate.get("status") != "passed":
+        fail(f"{backend} extraction gate did not pass")
+    structure_record = rtl_gate.get("structure", {})
     structure_path = Path(structure_record.get("path", ""))
     if not structure_path.is_absolute():
         structure_path = project / structure_path
     if structure_record.get("status") != "passed" or not structure_path.is_file():
-        fail("UHDM structure artifact is missing or invalid")
+        fail(f"{backend} structure artifact is missing or invalid")
     if file_digest(structure_path) != structure_record.get("sha256"):
-        fail("UHDM structure artifact digest mismatch")
+        fail(f"{backend} structure artifact digest mismatch")
     structure = load_json(structure_path)
     manifest, host_sources, _, _ = _inputs(project)
+    expected_structure_backend = (
+        "vcs-vpi" if backend == "vcs-vpi" else "uhdm-python-vpi"
+    )
     if (
         structure.get("schema_version") != 1
-        or structure.get("backend") != "uhdm-python-vpi"
+        or structure.get("backend") != expected_structure_backend
         or not isinstance(structure.get("modules"), list)
         or not structure["modules"]
         or not isinstance(structure.get("top_modules"), list)
         or not structure["top_modules"]
     ):
-        fail("UHDM structure artifact schema or content is invalid")
+        fail(f"{backend} structure artifact schema or content is invalid")
     reference_top = (
         manifest.get("reference_top")
         or manifest.get("target_top")
         or manifest.get("top")
     )
     if structure.get("reference_top") != reference_top:
-        fail("UHDM structure top does not match current manifest")
-    database_path = Path(uhdm.get("database", ""))
-    if not database_path.is_absolute():
-        database_path = project / database_path
-    if (
-        not database_path.is_file()
-        or file_digest(database_path) != uhdm.get("database_sha256")
-        or structure.get("database", {}).get("sha256")
-        != uhdm.get("database_sha256")
-    ):
-        fail("UHDM database is missing, changed, or inconsistent")
+        fail(f"{backend} structure top does not match current manifest")
+    if backend == "uhdm":
+        database_path = Path(rtl_gate.get("database", ""))
+        if not database_path.is_absolute():
+            database_path = project / database_path
+        if (
+            not database_path.is_file()
+            or file_digest(database_path) != rtl_gate.get("database_sha256")
+            or structure.get("database", {}).get("sha256")
+            != rtl_gate.get("database_sha256")
+        ):
+            fail("UHDM database is missing, changed, or inconsistent")
+    else:
+        backend_artifact = rtl_gate.get("backend_artifact")
+        if not isinstance(backend_artifact, dict):
+            fail("VCS backend artifact record is missing")
+        executable_path = Path(backend_artifact.get("path", ""))
+        if not executable_path.is_absolute():
+            executable_path = project / executable_path
+        if (
+            not executable_path.is_file()
+            or file_digest(executable_path) != backend_artifact.get("sha256")
+            or structure.get("backend_artifact", {}).get("sha256")
+            != backend_artifact.get("sha256")
+        ):
+            fail("VCS backend artifact is missing, changed, or inconsistent")
     expected_inputs = sorted(file_digest(source) for source in host_sources)
     for producer, record in producer_records.items():
         if (
@@ -398,9 +761,6 @@ def finalize_tools(project: Path) -> dict[str, Any]:
         actual = sorted(actual_values)
         if actual != expected_inputs:
             fail(f"{producer} producer inputs do not match current manifest")
-    pending_graph = load_json(paths["graph_manifest"])
-    pending_graph["tools"] = tools
-    dump_json(paths["graph_manifest"], pending_graph)
     graph_manifest = finalize_graph(
         project,
         structure=structure,
@@ -421,9 +781,13 @@ def _main(kind: str, argv: list[str] | None = None) -> int:
     parser.add_argument("project")
     args = parser.parse_args(argv)
     try:
-        result = (
-            produce_uhdm(Path(args.project).resolve())
-        )
+        project = Path(args.project).resolve()
+        if kind == "uhdm":
+            result = produce_uhdm(project)
+        elif kind == "vcs":
+            result = produce_vcs(project)
+        else:
+            result = produce_rtl(project)
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if all(
             item.get("status") in {"passed", "skipped"}
@@ -436,3 +800,11 @@ def _main(kind: str, argv: list[str] | None = None) -> int:
 
 def uhdm_main(argv: list[str] | None = None) -> int:
     return _main("uhdm", argv)
+
+
+def vcs_main(argv: list[str] | None = None) -> int:
+    return _main("vcs", argv)
+
+
+def rtl_main(argv: list[str] | None = None) -> int:
+    return _main("rtl", argv)

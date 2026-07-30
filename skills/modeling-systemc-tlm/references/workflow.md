@@ -35,7 +35,7 @@ The manifest paths are relative to `PROJECT`. RTL entries accept files, glob
 patterns, or directories. Directories are searched recursively for `.v` and
 `.sv` files. `target_top` is the DUT/model to generate; `reference_top` is an
 existing golden RTL module used for structural EDA. Testbench inputs are parsed
-by Surelog. RTL may
+by the configured EDA backend. RTL may
 be omitted when it is not yet available. Extraction then continues with the
 available documents/register maps, records RTL as a missing input, and skips
 structural EDA tools. Extraction is deterministic and records source digests
@@ -43,10 +43,10 @@ and locators. Re-run extraction whenever an input changes.
 
 With RTL inputs, `extract --skip-tools` creates source-located document units
 and a pending graph manifest. Text-unit IDs are valid contract evidence.
-The standard producer flow must restore and elaborate the UHDM database with
-the generated binary `.uhdm`, lint it, verify the requested top through
-`uhdm-hier --line`, and export structure through the official UHDM Python
-binding. The Spec producer is optional and runs only when
+The standard producer flow uses VCS elaboration and the packaged zero-time VPI
+exporter, then verifies the requested top, source locations and artifact
+digests. Legacy manifests may explicitly select the validated Surelog/UHDM
+flow. The Spec producer is optional and runs only when
 `graph.spec_extraction.enabled` is true. When enabled, it uses a fixed JSON
 Schema and rejects output without exact source spans. There is no RTL text or
 regular-expression fallback.

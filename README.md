@@ -10,7 +10,8 @@
 
 先在宿主机运行 `uv sync`，再通过 `uv run` 或 `scripts/eda-run ... agent`
 调用工作流。UHDM 镜像使用 conda-forge `surelog` 和 `uhdm` 二进制包。conda 包未携带可选的 Python wrapper，因此
-wrapper 在临时 builder 中生成；Surelog 本身不再编译。商业 EDA 工具有意排除。
+wrapper 在临时 builder 中生成；Surelog 本身不再编译。商业 EDA 二进制和许可证
+不会进入容器镜像，VCS producer 仅在研发网宿主环境运行。
 
 ## 构建与运行
 
@@ -44,6 +45,7 @@ podman-compose build eda-uhdm
 
 ```bash
 scripts/eda-run uhdm surelog --version
+scripts/eda-run --work "$PWD" vcs eda-rtl-produce /workspace/PROJECT
 scripts/eda-run --work "$PWD" uhdm \
   eda-uhdm run /workspace/design.uhdm /workspace/query.py \
   --output-dir /workspace/query-output
@@ -86,12 +88,13 @@ BuildKit/GHA cache，并强制单镜像小于 2 GiB。
 
 建模命令的职责、命令、产物和当前限制文档请参见
 [`docs/cli-reference.md`](docs/cli-reference.md)。
-Agent 通过 UHDM Python API 访问已验证的 Surelog 数据库；查询脚本只用于探索，
-canonical graph 仍由固定 UHDM exporter 生成。
+新项目通过 VCS/VPI 访问已验证的 elaborated 结构；UHDM Python API 仅保留为
+旧项目兼容和探索路径。canonical graph 仍只由固定、经过门禁的 exporter 生成。
 
 提取阶段现在以 canonical property graph 为唯一事实源：DOCX/Markdown/XLSX
 生成可定位的 text units，固定 schema 的 LLM producer 生成规范实体关系，
-Surelog/UHDM 生成 RTL 实体关系，最后仅以唯一精确名称/token 建立跨源边。
+配置的 VCS/VPI 或兼容 UHDM 后端生成 RTL 实体关系，最后仅以唯一精确
+名称/token 建立跨源边。
 DuckDB/Parquet、NetworkX 和 FAISS 都是可重建的查询层，不参与审批哈希。配置、
 产物和离线模型准备方式见
 [`docs/cli-reference.md`](docs/cli-reference.md#graph)。

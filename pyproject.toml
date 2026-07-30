@@ -20,6 +20,8 @@ systemc-tlm-agent = "tlm_agent.cli:main"
 systemc-tlm-package = "systemc_tlm_model_packager.cli:main"
 eda-uhdm = "eda_query.uhdm_runtime:main"
 eda-uhdm-produce = "tlm_agent.tool_producers:uhdm_main"
+eda-rtl-produce = "tlm_agent.tool_producers:rtl_main"
+eda-vcs-produce = "tlm_agent.tool_producers:vcs_main"
 eda-spec-produce = "tlm_agent.graph.extract:spec_main"
 
 [project.optional-dependencies]
@@ -36,6 +38,9 @@ vector = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+tlm_agent = ["vcs_vpi_export.c"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

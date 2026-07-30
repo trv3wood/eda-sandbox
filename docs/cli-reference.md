@@ -48,8 +48,9 @@ backend: local
 ```
 
 `target_top` 是待生成的 DUT。`reference_top` 是已有的黄金 RTL 模块，供
-Surelog/UHDM 结构化 elaboration 使用。Surelog 接收 `eda_compile.sources`（未配置时
-使用 `rtl`）以及对应的 include directory/define。
+所选 EDA 后端结构化 elaboration 使用。默认 VCS 后端接收
+`eda_compile.sources`（未配置时使用 `rtl`）以及对应的 include
+directory、define 和可选 `vcs_args`。
 
 语义 Spec 图默认关闭，功能合同可直接引用确定性 `text_units.jsonl` 中的
 `txt-*` ID。需要细粒度语义实体时，再显式启用支持 OpenAI-compatible JSON
@@ -57,6 +58,9 @@ object 响应的 endpoint；返回内容会在本地通过完整 JSON Schema 和
 
 ```yaml
 graph:
+  rtl_extraction:
+    backend: vcs-vpi
+    timeout_seconds: 1800
   spec_extraction:
     enabled: false
     provider: openai-compatible
@@ -68,7 +72,7 @@ graph:
 ```
 
 `enabled: false` 时 extraction 将 Spec producer 标记为 skipped，不调用 LLM，
-且 UHDM 通过后可发布 ready graph。密钥和 endpoint 只从环境变量读取，不写入
+且 RTL EDA 门禁通过后可发布 ready graph。密钥和 endpoint 只从环境变量读取，不写入
 项目产物。启用后，相同输入、prompt schema、模型和温度会命中
 `.systemc-agent/tools/spec-llm-cache/` 的确定性缓存。
 
@@ -89,7 +93,7 @@ scripts/systemc-tlm-agent init PROJECT \
 #### `extract`
 
 解析 manifest 输入，计算源文件摘要，写入文档树、text units 和 pending graph，
-并可选择运行 Spec 和 UHDM producer。
+并可选择运行 Spec 和配置的 RTL producer。
 
 ```bash
 scripts/systemc-tlm-agent extract PROJECT
@@ -101,20 +105,18 @@ scripts/systemc-tlm-agent extract PROJECT --skip-tools
 architecture 与合同证据。显式启用后，Spec producer 通过固定 JSON Schema 调用
 OpenAI-compatible endpoint；每个实体和关系必须回链到 text unit
 中的精确字符区间。SystemVerilog 不再使用文本或正则
-发现模块：RTL 首先处于 `pending`，随后固定执行
-`surelog -parse -elabuhdm`（生成二进制 `.uhdm`）、`uhdm-lint` 和
-`uhdm-hier --line`，并通过官方 UHDM Python VPI binding 导出结构。
-只有退出状态、elaboration 日志标记、请求的 top、输入/数据库/结构摘要全部校验
+发现模块：RTL 首先处于 `pending`。新项目默认由 VCS elaboration 和随包发布的
+C/VPI 插件在仿真零时刻导出结构；旧项目可显式配置 `backend: uhdm` 使用原有
+Surelog/UHDM 流程。只有退出状态、请求的 top、输入/原生工件/结构摘要全部校验
 通过，`graph/manifest.json` 才会成为 `status: ready`；否则不能审批。
 producer 不使用 Surelog 的 `-d uhdm` debug dump，避免把完整 UHDM tree 写入日志。
-Surelog 原生数据库保留在
-`tools/surelog-work/slpp_all/surelog.uhdm`，确定性结构保留在
-`tools/uhdm-structure.json`。
+VCS 原生工件保留在 `tools/vcs-work/`，后端无关结构保留在
+`tools/rtl-structure.json`。
 
-`--skip-tools` 只登记输入并留下 `pending` 状态，适合随后在角色镜像中分别执行：
+`--skip-tools` 只登记输入并留下 `pending` 状态，适合随后在对应执行环境中分别执行：
 
 ```bash
-scripts/eda-run --work WORK uhdm eda-uhdm-produce /workspace/PROJECT
+scripts/eda-run --work WORK vcs eda-rtl-produce /workspace/PROJECT
 # 可选：仅当 graph.spec_extraction.enabled: true
 scripts/eda-run --work WORK agent eda-spec-produce /workspace/PROJECT
 scripts/eda-run --work WORK agent \
@@ -123,8 +125,8 @@ scripts/eda-run --work WORK agent \
   systemc-tlm-agent graph build /workspace/PROJECT
 ```
 
-`eda_compile.sources` 是 UHDM 的编译文件集；`include_dirs` 和 `defines` 也会传给
-UHDM producer。对于包含共享 primitive
+`eda_compile.sources` 是 EDA 编译文件集；`include_dirs`、`defines` 和可选
+`vcs_args` 会传给 VCS producer。对于包含共享 primitive
 目录的 IP，可用 `exclude_sources`（文件、目录或 glob 列表）排除与该 top 无关、
 但依赖未被检出的模块。
 
@@ -173,7 +175,7 @@ scripts/systemc-tlm-agent approve PROJECT --approver NAME
 ```
 
 此后任何 manifest、输入、规范图、架构或冲突的更改都会使审批失效。即使历史 approval
-哈希仍匹配，只要当前 architecture/UHDM 门禁失败，也会被判为无效。
+哈希仍匹配，只要当前 architecture/RTL EDA 门禁失败，也会被判为无效。
 
 #### `generate`
 
