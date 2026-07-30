@@ -6,7 +6,9 @@
 - `eda-uhdm`：Surelog 和 UHDM Python binding，生成原生数据库并运行
   Agent 编写的直接 Python 查询。
 - `eda-scc`：SystemC/SCC 编译与验证；Conan 缓存只存在于 builder。
-- `eda-enterprise`：Rocky Linux 8，用于 RHEL 系列兼容性检查。
+- `eda-scc-rocky8`：Rocky Linux 8 上的 SystemC/minres-SCC SDK。它由
+  GitHub CI 构建和冒烟测试；内网节点通过 FTP 接收源码和已验证的交付包，不依赖
+  Podman 或 Docker。
 
 先在宿主机运行 `uv sync`，再通过 `uv run` 或 `scripts/eda-run ... agent`
 调用工作流。UHDM 镜像使用 conda-forge `surelog` 和 `uhdm` 二进制包。conda 包未携带可选的 Python wrapper，因此
@@ -60,8 +62,9 @@ scripts/eda-run rocky --shell
 如果只需要构建镜像，可以直接使用 Podman 的原生构建命令。这不需要 Docker 兼容的 API socket：
 
 ```bash
-podman build -f Dockerfile.rocky8 -t eda-enterprise:local .
-podman run --rm -it -v "$PWD:/workspace" eda-enterprise
+podman build -f Dockerfile.rocky8 --target eda-scc-rocky8 -t eda-scc-rocky8:local .
+podman run --rm -it -v "$PWD:/workspace" eda-scc-rocky8:local \
+  bash -lc 'source /opt/eda-scc-sdk/activate.sh && /opt/eda-sandbox/scripts/regress.sh scc'
 ```
 
 当 `podman compose` 报告它正在执行 `docker-compose` 时，请避免使用它。该提供者需要运行中的无根 Podman API socket，是诸如 `failed to connect to the docker API` 等错误的根源。
@@ -78,7 +81,35 @@ podman compose build
 `.github/workflows/ubuntu-images.yml` 构建 `linux/amd64` GHCR 镜像，复用
 BuildKit/GHA cache，并强制单镜像小于 2 GiB。
 `.github/workflows/rocky8-image.yml` 独立构建并测试
-`ghcr.io/trv3wood/eda-enterprise`，避免 Rocky 兼容性构建拖慢 Ubuntu 矩阵。
+`ghcr.io/trv3wood/eda-scc-rocky8`，并将可上传 FTP 的 SDK 保存为 CI artifact。
+
+## 内网 FTP 交付
+
+容器仅用于 GitHub CI 预先验证 Rocky 8 上的 SystemC/minres-SCC 编译链；内网节点不需要、也不应
+依赖容器运行时。生成并通过验证的模型可打成纯源码包后经 FTP 上传：
+
+```bash
+uv run systemc-tlm-package workspace/projects/PROJECT \
+  --output workspace/projects/PROJECT-model.tar.gz
+```
+
+该压缩包包含 `model/` 和不可变的 `contracts/testbench/`，自动排除构建目录和日志。
+从通过的 `Rocky 8 SCC SDK` workflow artifact 下载 `eda-scc-rocky8-sdk.tar.gz` 与
+对应的 `.sha256` 文件，将它和模型源码包通过 FTP 上传。内网用户目录校验、解压 SDK 并
+激活即可；无需管理员权限，也无需安装 micromamba、Python 包或容器：
+
+```bash
+sha256sum -c eda-scc-rocky8-sdk.sha256
+tar -xzf eda-scc-rocky8-sdk.tar.gz -C "$HOME/opt"
+source "$HOME/opt/eda-scc-sdk/activate.sh"
+cmake -S model -B model/build -DCMAKE_BUILD_TYPE=RelWithDebInfo
+cmake --build model/build --parallel
+ctest --test-dir model/build --output-on-failure
+```
+
+镜像内部的 `/opt/eda-scc-sdk` 只是 CI 构建路径；artifact 不保留该绝对安装位置。
+CI 会先把 SDK 移至临时用户目录、删除原 `/opt` 路径，再执行 SCC 编译链接探针，作为
+可在无 root 内网节点使用的门禁。
 
 ## 适用范围
 

@@ -1,45 +1,102 @@
-FROM rockylinux:8
+FROM rockylinux:8 AS rocky-base
 
 ARG MICROMAMBA_VERSION=2.6.2-1
-ARG IMAGE_REVISION=unknown
 
 ENV LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
     TZ=UTC \
-    MAMBA_ROOT_PREFIX=/opt/conda \
-    PATH=/opt/conda/envs/eda/bin:/usr/local/bin:$PATH \
-    LD_LIBRARY_PATH=/opt/conda/envs/eda/lib \
-    IMAGE_REVISION=${IMAGE_REVISION}
+    MAMBA_ROOT_PREFIX=/opt/conda
 
 RUN dnf -y install \
-        dnf-plugins-core \
-        epel-release && \
-    dnf config-manager --set-enabled powertools && \
-    dnf -y groupinstall "Development Tools" && \
-    dnf -y install \
         ca-certificates \
+        cmake \
         curl \
-        file \
+        gcc \
+        gcc-c++ \
         git \
-        wget \
-        which \
-        boost-devel \
-        eigen3-devel && \
+        make \
+        ninja-build \
+        which && \
     dnf clean all && \
     rm -rf /var/cache/dnf
 
-COPY env/rocky8-environment.yml /tmp/rocky8-environment.yml
-
+# micromamba 只用于 CI builder 中取得新版 Python、Conan、CMake 和 Ninja；
+# 产出的 SDK 不包含它，内网也无需安装它。
 RUN curl -fsSL \
         "https://github.com/mamba-org/micromamba-releases/releases/download/${MICROMAMBA_VERSION}/micromamba-linux-64" \
         -o /usr/local/bin/micromamba && \
-    chmod 0755 /usr/local/bin/micromamba && \
-    micromamba create --yes --prefix /opt/conda/envs/eda \
-        --file /tmp/rocky8-environment.yml && \
-    micromamba clean --all --yes && \
-    rm -f /tmp/rocky8-environment.yml
+    chmod 0755 /usr/local/bin/micromamba
 
+FROM rocky-base AS scc-compile
+
+ARG SCC_VERSION=2026.05
+
+RUN micromamba create --yes --prefix /opt/conda/envs/build \
+        python=3.12 pip cmake ninja && \
+    /opt/conda/envs/build/bin/python -m pip install --no-cache-dir conan && \
+    micromamba clean --all --yes
+
+RUN git clone --depth 1 --recurse-submodules --shallow-submodules \
+        --branch "${SCC_VERSION}" \
+        https://github.com/Minres/SystemC-Components.git /tmp/scc-src
+RUN cd /tmp/scc-src && \
+    /opt/conda/envs/build/bin/conan profile detect --force && \
+    /opt/conda/envs/build/bin/conan install . \
+        --output-folder=/tmp/scc-conan \
+        --deployer=full_deploy \
+        --build=missing -s build_type=Release
+RUN cd /tmp/scc-src && \
+    /opt/conda/envs/build/bin/cmake -S . -B /tmp/scc-build -G Ninja \
+        -DCMAKE_TOOLCHAIN_FILE=/tmp/scc-conan/build/Release/generators/conan_toolchain.cmake \
+        -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/eda-scc-sdk/scc && \
+    /opt/conda/envs/build/bin/cmake --build /tmp/scc-build --parallel && \
+    /opt/conda/envs/build/bin/cmake --install /tmp/scc-build
+
+FROM scc-compile AS scc-sdk
+
+# 将 Conan 的运行库和 SystemC 的 CMake export 合并入用户目录可解压的 SDK。
+RUN set -eu; \
+    mkdir -p /opt/eda-scc-sdk/deps; \
+    package_count=0; \
+    for package_root in /tmp/scc-conan/full_deploy/host/*/*/*/*; do \
+        test -d "${package_root}"; \
+        package_count=$((package_count + 1)); \
+        cp -a "${package_root}/." /opt/eda-scc-sdk/deps/; \
+    done; \
+    test "${package_count}" -gt 0
+RUN set -eu; \
+    systemc_config="$(find /root/.conan2/p -type f \
+        -path '*/build/Release/SystemCLanguageConfig.cmake' -print -quit)"; \
+    test -n "${systemc_config}"; \
+    systemc_build_dir="$(dirname "${systemc_config}")"; \
+    test -f "${systemc_build_dir}/cmake_install.cmake"; \
+    /opt/conda/envs/build/bin/cmake --install "${systemc_build_dir}" \
+        --prefix /opt/eda-scc-sdk/deps
+RUN test -n "$(find /opt/eda-scc-sdk/deps -type f \
+    -path '*/cmake/SystemCLanguage/SystemCLanguageConfig.cmake' -print -quit)" && \
+    test -n "$(find /opt/eda-scc-sdk/scc -type f \
+    -path '*/cmake/scc/sccConfig.cmake' -print -quit)"
+RUN printf '%s\n' \
+        '#!/usr/bin/env bash' \
+        'set -Eeuo pipefail' \
+        'eda_scc_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"' \
+        'export EDA_SCC_HOME="${eda_scc_root}"' \
+        'export CMAKE_PREFIX_PATH="${eda_scc_root}/scc:${eda_scc_root}/deps${CMAKE_PREFIX_PATH:+:${CMAKE_PREFIX_PATH}}"' \
+        'export LD_LIBRARY_PATH="${eda_scc_root}/scc/lib:${eda_scc_root}/scc/lib64:${eda_scc_root}/deps/lib:${eda_scc_root}/deps/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"' \
+        > /opt/eda-scc-sdk/activate.sh && \
+    chmod 0755 /opt/eda-scc-sdk/activate.sh
+
+FROM rocky-base AS eda-scc-rocky8
+
+ARG IMAGE_REVISION=unknown
+
+COPY --from=scc-sdk /opt/eda-scc-sdk /opt/eda-scc-sdk
 COPY scripts/regress.sh /opt/eda-sandbox/scripts/regress.sh
+
+ENV EDA_SCC_HOME=/opt/eda-scc-sdk \
+    CMAKE_PREFIX_PATH=/opt/eda-scc-sdk/scc:/opt/eda-scc-sdk/deps \
+    LD_LIBRARY_PATH=/opt/eda-scc-sdk/scc/lib:/opt/eda-scc-sdk/scc/lib64:/opt/eda-scc-sdk/deps/lib:/opt/eda-scc-sdk/deps/lib64 \
+    IMAGE_REVISION=${IMAGE_REVISION}
 
 WORKDIR /workspace
 

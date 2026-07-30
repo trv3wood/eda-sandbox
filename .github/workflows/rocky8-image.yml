@@ -1,10 +1,9 @@
-name: Rocky 8 container image
+name: Rocky 8 SCC SDK
 
 on:
   pull_request:
     paths:
       - Dockerfile.rocky8
-      - env/rocky8-environment.yml
       - scripts/regress.sh
       - .github/workflows/rocky8-image.yml
   push:
@@ -32,23 +31,57 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Set image name
-        run: echo "IMAGE=${REGISTRY}/${GITHUB_REPOSITORY_OWNER,,}/eda-enterprise:${GITHUB_SHA}" >> "$GITHUB_ENV"
+        run: echo "IMAGE=${REGISTRY}/${GITHUB_REPOSITORY_OWNER,,}/eda-scc-rocky8:${GITHUB_SHA}" >> "$GITHUB_ENV"
+      - name: Warm SCC SDK compile cache
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.rocky8
+          target: scc-sdk
+          platforms: linux/amd64
+          cache-from: type=gha,scope=rocky8-scc-sdk
+          cache-to: type=gha,mode=max,scope=rocky8-scc-sdk
       - uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile.rocky8
+          target: eda-scc-rocky8
           platforms: linux/amd64
           tags: ${{ env.IMAGE }}
           build-args: IMAGE_REVISION=${{ github.sha }}
           load: true
-          cache-from: type=gha,scope=rocky8
-          cache-to: type=gha,mode=max,scope=rocky8
-      - name: Smoke test
-        run: docker run --rm "$IMAGE" bash /opt/eda-sandbox/scripts/regress.sh enterprise
+          cache-from: |
+            type=gha,scope=rocky8-scc-sdk
+            type=gha,scope=rocky8-scc-runtime
+          cache-to: type=gha,mode=max,scope=rocky8-scc-runtime
+      - name: Smoke test from a relocatable user path
+        run: |
+          docker run --rm "$IMAGE" bash -lc '
+            mkdir -p /tmp/ftp-user/.local
+            mv /opt/eda-scc-sdk /tmp/ftp-user/.local/eda-scc-sdk
+            source /tmp/ftp-user/.local/eda-scc-sdk/activate.sh
+            /opt/eda-sandbox/scripts/regress.sh scc
+          '
+      - name: Export FTP SDK
+        run: |
+          container_id="$(docker create "$IMAGE")"
+          docker cp "${container_id}:/opt/eda-scc-sdk" .
+          docker rm "${container_id}"
+          tar -C . -czf eda-scc-rocky8-sdk.tar.gz eda-scc-sdk
+          sha256sum eda-scc-rocky8-sdk.tar.gz > eda-scc-rocky8-sdk.sha256
+      - name: Upload FTP SDK
+        uses: actions/upload-artifact@v4
+        with:
+          name: eda-scc-rocky8-sdk-${{ github.sha }}
+          path: |
+            eda-scc-rocky8-sdk.tar.gz
+            eda-scc-rocky8-sdk.sha256
+          if-no-files-found: error
+          retention-days: 90
       - name: Enforce image size
         run: |
           bytes="$(docker image inspect "$IMAGE" --format '{{.Size}}')"
-          test "$bytes" -le "$((3500 * 1024 * 1024))"
+          test "$bytes" -le "$((2 * 1024 * 1024 * 1024))"
       - name: Push image
         if: github.event_name != 'pull_request'
         run: |

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shlex
 import shutil
 import subprocess
@@ -42,9 +43,10 @@ def verify_project(project_dir: Path, *, backend: str = "auto") -> dict[str, Any
 
     selected = backend
     if selected == "auto":
-        # /opt/scc is the image installation convention. Users can override
-        # this heuristic explicitly with --backend local or --backend podman.
-        selected = "local" if Path("/opt/scc").exists() else "podman"
+        # 本机显式激活可解压 SCC SDK 后优先本地验证；否则保持容器后端。
+        selected = "local" if all(
+            shutil.which(tool) for tool in ("cmake", "c++")
+        ) and ("EDA_SCC_HOME" in os.environ or Path("/opt/scc").exists()) else "podman"
 
     if selected == "podman":
         repo_root = _find_repo_root(project_dir.resolve())
@@ -92,19 +94,17 @@ def verify_project(project_dir: Path, *, backend: str = "auto") -> dict[str, Any
         return result
 
     build_dir = paths["model"] / "build"
-    configure = _execute(
-        [
-            "cmake",
-            "-S",
-            str(paths["model"]),
-            "-B",
-            str(build_dir),
-            "-G",
-            "Ninja",
-            "-DCMAKE_BUILD_TYPE=RelWithDebInfo",
-        ],
-        project_dir,
-    )
+    configure_command = [
+        "cmake",
+        "-S",
+        str(paths["model"]),
+        "-B",
+        str(build_dir),
+    ]
+    if shutil.which("ninja"):
+        configure_command.extend(["-G", "Ninja"])
+    configure_command.append("-DCMAKE_BUILD_TYPE=RelWithDebInfo")
+    configure = _execute(configure_command, project_dir)
     build = (
         _execute(["cmake", "--build", str(build_dir), "--parallel"], project_dir)
         if configure["returncode"] == 0

@@ -3,12 +3,16 @@ set -Eeuo pipefail
 
 profile="${1:-auto}"
 if [[ "${profile}" == "auto" ]]; then
-  if [[ -f /etc/rocky-release ]]; then
-    profile="enterprise"
+  if [[ -d /opt/eda-scc-sdk ]]; then
+    profile="scc"
+  elif [[ -f /etc/rocky-release ]]; then
+    profile="systemc"
   elif command -v vcs >/dev/null && command -v eda-rtl-produce >/dev/null; then
     profile="vcs"
   elif command -v surelog >/dev/null && command -v eda-uhdm >/dev/null; then
     profile="uhdm"
+  elif [[ -d /opt/systemc ]]; then
+    profile="systemc"
   elif [[ -d /opt/scc ]]; then
     profile="scc"
   else
@@ -31,7 +35,11 @@ require_tools() {
 
 printf 'EDA sandbox image profile: %s\n' "${profile}"
 printf '  OS:      %s\n' "$(. /etc/os-release && printf '%s %s' "$NAME" "$VERSION_ID")"
-printf '  Python:  %s\n' "$(python3 --version 2>&1)"
+if command -v python3 >/dev/null 2>&1; then
+  printf '  Python:  %s\n' "$(python3 --version 2>&1)"
+else
+  printf '  Python:  unavailable\n'
+fi
 
 case "${profile}" in
   agent)
@@ -121,48 +129,69 @@ case "${profile}" in
     )
     ;;
   scc)
-    require_tools python3 cmake ninja c++
-    test -d /opt/scc/include
-    test -d /opt/scc/lib
+    require_tools cmake ninja c++
+    scc_home="${EDA_SCC_HOME:-/opt/scc}"
+    if [[ -d "${scc_home}/scc" ]]; then
+      scc_prefix="${scc_home}/scc"
+      scc_deps="${scc_home}/deps"
+    else
+      scc_prefix="${scc_home}"
+      scc_deps="${EDA_SCC_DEPS:-/opt/scc-deps}"
+    fi
+    test -d "${scc_prefix}/include"
+    test -n "$(find "${scc_deps}" -type f \
+      -path '*/cmake/SystemCLanguage/SystemCLanguageConfig.cmake' -print -quit)"
     printf '  CMake:   %s\n' "$(cmake --version | head -n 1)"
     printf '  Ninja:   %s\n' "$(ninja --version)"
-    printf '  SCC:     /opt/scc\n'
+    printf '  SCC:     %s\n' "${scc_prefix}"
     probe_dir="$(mktemp -d)"
     trap 'rm -rf "${probe_dir}"' EXIT
     printf '%s\n' \
       'cmake_minimum_required(VERSION 3.20)' \
       'project(scc_probe LANGUAGES CXX)' \
       'find_package(SystemCLanguage CONFIG REQUIRED)' \
+      'find_package(scc CONFIG REQUIRED)' \
       'add_executable(scc_probe main.cpp)' \
       'target_link_libraries(scc_probe PRIVATE SystemC::systemc)' \
+      'if(TARGET scc::scc)' \
+      '  target_link_libraries(scc_probe PRIVATE scc::scc)' \
+      'elseif(TARGET scc)' \
+      '  target_link_libraries(scc_probe PRIVATE scc)' \
+      'else()' \
+      '  message(FATAL_ERROR "scc package exports no supported target")' \
+      'endif()' \
       >"${probe_dir}/CMakeLists.txt"
     printf '%s\n' \
       '#include <systemc>' \
+      '#include <scc/report.h>' \
       'int sc_main(int, char**) { return 0; }' \
       >"${probe_dir}/main.cpp"
     cmake -S "${probe_dir}" -B "${probe_dir}/build" -G Ninja >/dev/null
     cmake --build "${probe_dir}/build" >/dev/null
     ;;
-  enterprise)
-    require_tools \
-      bash cmake ninja git python3 surelog
-    printf '  CMake:     %s\n' "$(cmake --version | head -n 1)"
-    printf '  Ninja:     %s\n' "$(ninja --version)"
+  systemc)
+    require_tools cmake c++
+    test -d /opt/systemc/include
+    test -n "$(find /opt/systemc -type f \
+      -path '*/cmake/SystemCLanguage/SystemCLanguageConfig.cmake' -print -quit)"
     probe_dir="$(mktemp -d)"
     trap 'rm -rf "${probe_dir}"' EXIT
     printf '%s\n' \
-      'module top(input logic clk_i, output logic ready_o);' \
-      '  assign ready_o = clk_i;' \
-      'endmodule' \
-      >"${probe_dir}/top.sv"
-    (
-      cd "${probe_dir}"
-      surelog top.sv -top top -parse -elabuhdm >/dev/null
-      test -s slpp_all/surelog.uhdm
-    )
+      'cmake_minimum_required(VERSION 3.16)' \
+      'project(systemc_probe LANGUAGES CXX)' \
+      'find_package(SystemCLanguage CONFIG REQUIRED)' \
+      'add_executable(systemc_probe main.cpp)' \
+      'target_link_libraries(systemc_probe PRIVATE SystemC::systemc)' \
+      >"${probe_dir}/CMakeLists.txt"
+    printf '%s\n' \
+      '#include <systemc>' \
+      'int sc_main(int, char**) { return 0; }' \
+      >"${probe_dir}/main.cpp"
+    cmake -S "${probe_dir}" -B "${probe_dir}/build" >/dev/null
+    cmake --build "${probe_dir}/build" >/dev/null
     ;;
   *)
-    printf 'ERROR: expected profile agent, vcs, uhdm, scc, enterprise, or auto\n' >&2
+    printf 'ERROR: expected profile agent, vcs, uhdm, scc, systemc, or auto\n' >&2
     exit 2
     ;;
 esac

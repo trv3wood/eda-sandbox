@@ -19,11 +19,12 @@ services:
     volumes:
       - .:/workspace
 
-  eda-enterprise:
+  eda-scc-rocky8:
     build:
       context: .
       dockerfile: Dockerfile.rocky8
-    image: localhost/eda-enterprise:local
+      target: eda-scc-rocky8
+    image: localhost/eda-scc-rocky8:local
     working_dir: /workspace
     volumes:
       - .:/workspace
