@@ -11,17 +11,21 @@ Use the deterministic CLI for artifact production. Use agent reasoning to interp
 
 1. Read `references/workflow.md`, then inspect the project manifest and current status.
 2. Run `scripts/systemc-tlm-agent extract PROJECT --skip-tools`, then run the
-   Spec, UHDM, and RTL producers and `tools finalize` as described in
-   `references/tooling.md`. The canonical graph remains pending until all
-   required producers and graph gates pass.
-3. Assign source-backed graph entity IDs to claims. Surelog/UHDM supplies the
-   canonical RTL structure; schema-constrained Spec extraction supplies
-   exact-span-grounded semantic entities. UHDM is the canonical RTL structure
-   source; exploratory queries do not create additional truth stores.
+   UHDM producer and `tools finalize` as described in `references/tooling.md`.
+   Spec semantic extraction is optional and runs only when
+   `graph.spec_extraction.enabled` is true.
+3. Assign source-backed graph entity IDs or deterministic text-unit IDs to
+   claims. Surelog/UHDM supplies the canonical RTL structure; optional
+   schema-constrained Spec extraction supplies semantic entities. UHDM remains
+   the canonical RTL structure source; exploratory queries do not create
+   additional truth stores.
 4. Run `scripts/systemc-tlm-agent architect PROJECT`.
 5. Complete all eight contract categories according to `references/contracts.md`. Record contradictions in `contracts/conflicts.yaml`.
-6. Write executable C++ black-box contract tests under `contracts/testbench/`.
-   Give every acceptance scenario a stable ID and exact `test_ids` coverage.
+6. Write executable SystemC/TLM black-box contract tests under
+   `contracts/testbench/`. Set `schema_version: 2` and `kind: systemc_tlm` in
+   `testbench.yaml`. Every test source must use `sc_main`, a TLM initiator
+   socket, socket binding, `tlm_generic_payload`, and `b_transport`; give
+   every acceptance scenario a stable ID and exact `test_ids` coverage.
 7. Stop if any category is unresolved, any contract test is missing, or any conflict is open. Ask for a decision with the competing evidence IDs.
 8. Validate with `scripts/systemc-tlm-agent architect PROJECT --validate`.
 9. Require explicit human approval: `scripts/systemc-tlm-agent approve PROJECT --approver NAME`.

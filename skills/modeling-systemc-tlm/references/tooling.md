@@ -13,9 +13,11 @@ uv sync --extra graph
 ```bash
 scripts/eda-run --work WORK agent \
   systemc-tlm-agent extract /workspace/PROJECT --skip-tools
+# Optional, only when graph.spec_extraction.enabled is true:
 scripts/eda-run --work WORK agent eda-spec-produce /workspace/PROJECT
 scripts/eda-run --work WORK agent systemc-tlm-agent status /workspace/PROJECT
 scripts/eda-run --work WORK uhdm eda-uhdm-produce /workspace/PROJECT
+scripts/eda-run --work WORK rtl verilator --version
 scripts/eda-run --work WORK agent \
   systemc-tlm-agent tools finalize /workspace/PROJECT
 scripts/eda-run --work WORK agent \
@@ -29,6 +31,7 @@ scripts/eda-run --work WORK scc \
 
 - `agent`: local `uv` workflow and graph/spec tooling; it is not a container.
 - `uhdm`: Surelog, the UHDM Python binding, and the thin `eda-uhdm` runner.
+- `rtl`: RTL simulation and differential-test tooling.
 - `scc`: SystemC/minres-SCC compilation and verification.
 - `rocky`: Rocky Linux 8 compatibility checks.
 
@@ -44,7 +47,7 @@ The UHDM producer always runs this fixed sequence:
 4. `uhdm-hier surelog.uhdm --line`
 5. the official Python VPI exporter
 
-The Spec producer uses a fixed JSON Schema through an OpenAI-compatible API.
+The optional Spec producer uses a fixed JSON Schema through an OpenAI-compatible API.
 Every entity and relationship must cite an exact span in a known text unit.
 Requests are deterministically batched and cached by input, prompt/schema,
 model, and parameters.

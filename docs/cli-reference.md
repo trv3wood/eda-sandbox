@@ -51,12 +51,14 @@ backend: local
 Surelog/UHDM 结构化 elaboration 使用。Surelog 接收 `eda_compile.sources`（未配置时
 使用 `rtl`）以及对应的 include directory/define。
 
-规范图需要一个支持 OpenAI-compatible JSON object 响应的 endpoint。返回内容仍会
-在本地通过完整 JSON Schema 和源跨度校验：
+语义 Spec 图默认关闭，功能合同可直接引用确定性 `text_units.jsonl` 中的
+`txt-*` ID。需要细粒度语义实体时，再显式启用支持 OpenAI-compatible JSON
+object 响应的 endpoint；返回内容会在本地通过完整 JSON Schema 和源跨度校验：
 
 ```yaml
 graph:
   spec_extraction:
+    enabled: false
     provider: openai-compatible
     model: your-model
     base_url_env: SYSTEMC_TLM_LLM_BASE_URL
@@ -65,8 +67,10 @@ graph:
     response_format: json_object
 ```
 
-密钥和 endpoint 只从环境变量读取，不写入项目产物。相同输入、prompt schema、
-模型和温度会命中 `.systemc-agent/tools/spec-llm-cache/` 的确定性缓存。
+`enabled: false` 时 extraction 将 Spec producer 标记为 skipped，不调用 LLM，
+且 UHDM 通过后可发布 ready graph。密钥和 endpoint 只从环境变量读取，不写入
+项目产物。启用后，相同输入、prompt schema、模型和温度会命中
+`.systemc-agent/tools/spec-llm-cache/` 的确定性缓存。
 
 ### 命令
 
@@ -92,8 +96,10 @@ scripts/systemc-tlm-agent extract PROJECT
 scripts/systemc-tlm-agent extract PROJECT --skip-tools
 ```
 
-文档前端支持 DOCX/OOXML、Markdown 和 XLSX。Spec producer 通过固定 JSON
-Schema 调用 OpenAI-compatible endpoint；每个实体和关系必须回链到 text unit
+文档前端支持 DOCX/OOXML、Markdown 和 XLSX。默认
+`graph.spec_extraction.enabled: false`，稳定的 `txt-*` text-unit ID 可直接作为
+architecture 与合同证据。显式启用后，Spec producer 通过固定 JSON Schema 调用
+OpenAI-compatible endpoint；每个实体和关系必须回链到 text unit
 中的精确字符区间。SystemVerilog 不再使用文本或正则
 发现模块：RTL 首先处于 `pending`，随后固定执行
 `surelog -parse -elabuhdm`（生成二进制 `.uhdm`）、`uhdm-lint` 和
@@ -109,6 +115,7 @@ Surelog 原生数据库保留在
 
 ```bash
 scripts/eda-run --work WORK uhdm eda-uhdm-produce /workspace/PROJECT
+# 可选：仅当 graph.spec_extraction.enabled: true
 scripts/eda-run --work WORK agent eda-spec-produce /workspace/PROJECT
 scripts/eda-run --work WORK agent \
   systemc-tlm-agent tools finalize /workspace/PROJECT

@@ -41,7 +41,7 @@ class GraphExtractTest(unittest.TestCase):
             self.assertEqual(transfer["section_path"], ["DMA"])
             self.assertEqual(transfer["locator"], "lines:3-4")
 
-    def test_llm_response_requires_valid_spans_and_endpoints(self) -> None:
+    def test_llm_response_requires_unique_evidence_quotes(self) -> None:
         units = [{
             "id": "txt-1",
             "text": "DMA reports fatal_error.",
@@ -59,8 +59,7 @@ class GraphExtractTest(unittest.TestCase):
                 "properties": {},
                 "source_spans": [{
                     "text_unit_id": "txt-1",
-                    "start": 12,
-                    "end": 23,
+                    "evidence_quote": "fatal_error",
                 }],
             }],
             "relationships": [],
@@ -74,8 +73,18 @@ class GraphExtractTest(unittest.TestCase):
         self.assertEqual(entities[0]["source_refs"][0]["text"], "fatal_error")
         self.assertEqual(relationships, [])
 
-        response["entities"][0]["source_spans"][0]["end"] = 100
-        with self.assertRaisesRegex(ValueError, "invalid source span"):
+        response["entities"][0]["source_spans"][0]["evidence_quote"] = "missing"
+        with self.assertRaisesRegex(ValueError, "not in"):
+            normalize_spec_response(
+                response,
+                units,
+                model="fixture",
+                response_digest="response",
+            )
+
+        units[0]["text"] = "fatal_error fatal_error"
+        response["entities"][0]["source_spans"][0]["evidence_quote"] = "fatal_error"
+        with self.assertRaisesRegex(ValueError, "ambiguous"):
             normalize_spec_response(
                 response,
                 units,
@@ -128,8 +137,9 @@ class GraphExtractTest(unittest.TestCase):
                             "properties": {},
                             "source_spans": [{
                                 "text_unit_id": unit["id"],
-                                "start": 0,
-                                "end": len(unit["text"]),
+                                "evidence_quote": (
+                                    "missing quote" if len(calls) == 1 else unit["text"]
+                                ),
                             }],
                         }],
                         "relationships": [],
@@ -157,7 +167,7 @@ class GraphExtractTest(unittest.TestCase):
 
             self.assertEqual(first["status"], "passed")
             self.assertEqual(second["response_digest"], first["response_digest"])
-            self.assertEqual(len(calls), first["batch_count"])
+            self.assertEqual(len(calls), first["batch_count"] + 1)
             entities = load_json(
                 project / ".systemc-agent/graph/manifest.json"
             )["producers"]["spec"]["entity_count"]

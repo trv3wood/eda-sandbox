@@ -12,6 +12,7 @@ Usage:
 Roles:
   agent       Local uv workflow and graph/spec tooling
   uhdm        Surelog and direct UHDM Python queries
+  rtl         RTL simulation and differential-test tooling
   scc         SystemC/SCC compilation and verification
   rocky       Rocky Linux 8 compatibility toolchain
 
@@ -27,7 +28,7 @@ Environment:
   EDA_CONTAINER_ENGINE  podman or docker
   EDA_IMAGE_PREFIX      default: ghcr.io/trv3wood
   EDA_IMAGE_TAG         default: main
-  EDA_UHDM_IMAGE, EDA_SCC_IMAGE, EDA_ROCKY_IMAGE
+  EDA_UHDM_IMAGE, EDA_RTL_IMAGE, EDA_SCC_IMAGE, EDA_ROCKY_IMAGE
 
 Examples:
   scripts/eda-run uhdm surelog --version
@@ -103,6 +104,10 @@ case "${role}" in
   uhdm)
     role_image="${EDA_UHDM_IMAGE:-}"
     image_name="eda-uhdm"
+    ;;
+  rtl)
+    role_image="${EDA_RTL_IMAGE:-}"
+    image_name="eda-rtl"
     ;;
   scc)
     role_image="${EDA_SCC_IMAGE:-}"
@@ -181,6 +186,35 @@ if [[ "${engine##*/}" == "podman" ]]; then
   container_args+=(--userns=keep-id -v "${work_dir}:/workspace:Z")
 else
   container_args+=(--user "$(id -u):$(id -g)" -v "${work_dir}:/workspace")
+fi
+
+# The UHDM image owns the native binding, while the producer policy and
+# exporter remain versioned with this checkout.  Avoid relying on a Python
+# package baked into an older image when invoking the producer entry point.
+if [[ "${role}" == "uhdm" && "${1:-}" == "eda-uhdm-produce" ]]; then
+  if [[ "${engine##*/}" == "podman" ]]; then
+    container_args+=(-v "${repo_root}:/opt/eda-sandbox:ro,Z")
+  else
+    container_args+=(-v "${repo_root}:/opt/eda-sandbox:ro")
+  fi
+  container_args+=(-e "PYTHONPATH=/opt/eda-sandbox/src")
+  shift
+  set -- python -c \
+    'from tlm_agent.tool_producers import uhdm_main; raise SystemExit(uhdm_main())' \
+    "$@"
+fi
+
+# SCC owns the native SystemC/minres-SCC installation.  The CLI and verifier
+# policy, however, must match the checkout that generated the model.
+if [[ "${role}" == "scc" && "${1:-}" == "systemc-tlm-agent" ]]; then
+  if [[ "${engine##*/}" == "podman" ]]; then
+    container_args+=(-v "${repo_root}:/opt/eda-sandbox:ro,Z")
+  else
+    container_args+=(-v "${repo_root}:/opt/eda-sandbox:ro")
+  fi
+  container_args+=(-e "PYTHONPATH=/opt/eda-sandbox/src")
+  shift
+  set -- python3 -m tlm_agent.cli "$@"
 fi
 
 if [[ "${shell_mode}" == true ]]; then
