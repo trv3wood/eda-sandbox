@@ -91,6 +91,41 @@ class UhdmProducerTest(unittest.TestCase):
 
             self.assertEqual(sources, [rtl.resolve()])
 
+    def test_directory_discovery_includes_svp_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            rtl_dir = project / "rtl"
+            testbench_dir = project / "testbench"
+            rtl_dir.mkdir()
+            testbench_dir.mkdir()
+            rtl = rtl_dir / "top.svp"
+            testbench = testbench_dir / "top_tb.SVP"
+            rtl.write_text("module top; endmodule\n", encoding="utf-8")
+            testbench.write_text("module top_tb; endmodule\n", encoding="utf-8")
+            dump_yaml(
+                project / "manifest.yaml",
+                {
+                    "schema_version": 1,
+                    "name": "svp-fixture",
+                    "target_top": "top",
+                    "reference_top": "top",
+                    "rtl": ["rtl"],
+                    "testbench": ["testbench"],
+                    "eda_compile": {
+                        "sources": ["rtl", "testbench"],
+                        "include_dirs": [],
+                        "defines": [],
+                    },
+                },
+            )
+
+            summary = extract_project(project, run_tools=False)
+            _, sources, _, _ = _inputs(project)
+
+            self.assertEqual(summary["rtl_file_count"], 1)
+            self.assertEqual(summary["testbench_file_count"], 1)
+            self.assertEqual(sources, [rtl.resolve(), testbench.resolve()])
+
     @patch("tlm_agent.tool_producers._version", return_value="1.84")
     @patch("tlm_agent.tool_producers.export_uhdm_structure")
     @patch("tlm_agent.tool_producers._run")

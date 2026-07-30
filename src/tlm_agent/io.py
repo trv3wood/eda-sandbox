@@ -8,6 +8,9 @@ from typing import Any
 import yaml
 
 
+RTL_SOURCE_SUFFIXES = frozenset({".v", ".sv", ".svp"})
+
+
 def load_yaml(path: Path) -> dict[str, Any]:
     if not path.exists():
         raise FileNotFoundError(path)

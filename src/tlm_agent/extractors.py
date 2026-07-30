@@ -10,6 +10,7 @@ from .io import (
     project_paths,
     relative_to_project,
     resolve_inputs,
+    RTL_SOURCE_SUFFIXES,
 )
 from .graph.extract import extract_document_graph, extract_workbook_units
 from .graph.schema import GRAPH_SCHEMA_VERSION, canonical_digest, write_jsonl
@@ -36,12 +37,12 @@ def extract_project(project_dir: Path, *, run_tools: bool = True) -> dict[str, A
     rtl_files = resolve_inputs(
         project_dir,
         manifest.get("rtl", []),
-        directory_suffixes={".v", ".sv"},
+        directory_suffixes=set(RTL_SOURCE_SUFFIXES),
     )
     testbench_files = resolve_inputs(
         project_dir,
         manifest.get("testbench", []),
-        directory_suffixes={".v", ".sv"},
+        directory_suffixes=set(RTL_SOURCE_SUFFIXES),
     )
     compile_config = manifest.get("eda_compile", {})
     if compile_config and not isinstance(compile_config, dict):
@@ -54,7 +55,7 @@ def extract_project(project_dir: Path, *, run_tools: bool = True) -> dict[str, A
     compile_sources = resolve_inputs(
         project_dir,
         compile_config.get("sources", manifest.get("rtl", [])),
-        directory_suffixes={".v", ".sv"},
+        directory_suffixes=set(RTL_SOURCE_SUFFIXES),
         exclude_values=excludes,
     )
     include_dirs = []
