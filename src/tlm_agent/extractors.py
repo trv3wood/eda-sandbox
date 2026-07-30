@@ -9,6 +9,7 @@ from .io import (
     load_yaml,
     project_paths,
     relative_to_project,
+    resolve_filelist_inputs,
     resolve_inputs,
     RTL_SOURCE_SUFFIXES,
 )
@@ -52,11 +53,52 @@ def extract_project(project_dir: Path, *, run_tools: bool = True) -> dict[str, A
         isinstance(value, str) and value for value in excludes
     ):
         raise ValueError("manifest eda_compile.exclude_sources must be a list of strings")
-    compile_sources = resolve_inputs(
+    working_value = compile_config.get("working_directory", ".")
+    if not isinstance(working_value, str) or not working_value:
+        raise ValueError("eda_compile.working_directory must be a string")
+    working_path = Path(working_value)
+    compile_working_directory = (
+        working_path
+        if working_path.is_absolute()
+        else project_dir / working_path
+    ).resolve()
+    if not compile_working_directory.is_dir():
+        raise FileNotFoundError(
+            f"EDA working directory does not exist: {working_value}"
+        )
+    filelists, all_filelists, filelist_sources = resolve_filelist_inputs(
         project_dir,
-        compile_config.get("sources", manifest.get("rtl", [])),
+        compile_config.get("filelists", []),
+        working_directory=compile_working_directory,
+    )
+    source_values = compile_config.get("sources")
+    if source_values is None:
+        source_values = [] if filelists else manifest.get("rtl", [])
+    if not isinstance(source_values, list) or not all(
+        isinstance(value, str) and value for value in source_values
+    ):
+        raise ValueError("manifest eda_compile.sources must be a list of strings")
+    explicit_compile_sources = resolve_inputs(
+        project_dir,
+        source_values,
         directory_suffixes=set(RTL_SOURCE_SUFFIXES),
         exclude_values=excludes,
+    )
+    compile_sources = list(
+        dict.fromkeys([*filelist_sources, *explicit_compile_sources])
+    )
+    testbench_set = set(testbench_files)
+    effective_rtl_files = list(
+        dict.fromkeys(
+            [
+                *rtl_files,
+                *(
+                    source
+                    for source in compile_sources
+                    if source not in testbench_set
+                ),
+            ]
+        )
     )
     include_dirs = []
     for value in compile_config.get("include_dirs", []):
@@ -70,7 +112,8 @@ def extract_project(project_dir: Path, *, run_tools: bool = True) -> dict[str, A
         isinstance(value, str) and value for value in defines
     ):
         raise ValueError("manifest eda_compile.defines must be a list of strings")
-    if rtl_files and not compile_sources:
+    rtl_available = bool(rtl_files or compile_sources)
+    if rtl_available and not compile_sources:
         raise ValueError("manifest eda_compile sources are empty after exclude_sources")
     target_top = manifest.get("target_top", manifest.get("top"))
     reference_top = manifest.get("reference_top") or target_top
@@ -105,6 +148,7 @@ def extract_project(project_dir: Path, *, run_tools: bool = True) -> dict[str, A
         *register_paths,
         *rtl_files,
         *testbench_files,
+        *all_filelists,
         *compile_sources,
     ]))
     input_records = [
@@ -116,7 +160,7 @@ def extract_project(project_dir: Path, *, run_tools: bool = True) -> dict[str, A
     ]
     graph_manifest = {
         "schema_version": GRAPH_SCHEMA_VERSION,
-        "status": "pending" if (text_units or rtl_files) else "ready",
+        "status": "pending" if (text_units or rtl_available) else "ready",
         "target_top": target_top,
         "reference_top": reference_top,
         "inputs": input_records,
@@ -139,9 +183,9 @@ def extract_project(project_dir: Path, *, run_tools: bool = True) -> dict[str, A
                 ),
             },
             "rtl": {
-                "status": "pending" if rtl_files else "skipped",
+                "status": "pending" if rtl_available else "skipped",
                 "backend": rtl_backend,
-                "reason": None if rtl_files else "no RTL inputs",
+                "reason": None if rtl_available else "no RTL inputs",
             },
             "cross_source": {"status": "pending"},
         },
@@ -153,15 +197,16 @@ def extract_project(project_dir: Path, *, run_tools: bool = True) -> dict[str, A
         "document_count": len(document_paths),
         "register_workbook_count": len(register_paths),
         "text_unit_count": len(text_units),
-        "rtl_available": bool(rtl_files),
-        "rtl_file_count": len(rtl_files),
+        "rtl_available": rtl_available,
+        "rtl_file_count": len(effective_rtl_files),
+        "filelist_count": len(all_filelists),
         "testbench_file_count": len(testbench_files),
         "rtl_status": graph_manifest["producers"]["rtl"]["status"],
         "rtl_backend": rtl_backend,
         "graph_status": graph_manifest["status"],
-        "missing_inputs": [] if rtl_files else ["rtl"],
+        "missing_inputs": [] if rtl_available else ["rtl"],
     }
-    if run_tools and rtl_files:
+    if run_tools and rtl_available:
         from .graph.extract import produce_spec_graph
         from .tool_producers import finalize_tools, produce_rtl
 

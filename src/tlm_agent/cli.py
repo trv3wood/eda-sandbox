@@ -61,7 +61,11 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument("--rtl", action="append", default=[])
     init.add_argument(
         "--eda-source", action="append", default=[],
-        help="ordered SystemVerilog compile source (repeatable; defaults to --rtl)",
+        help="ordered source appended after all --eda-filelist entries",
+    )
+    init.add_argument(
+        "--eda-filelist", action="append", default=[],
+        help="VCS-style compile filelist passed verbatim with -f (repeatable)",
     )
     init.add_argument(
         "--eda-include-dir", action="append", default=[],
@@ -179,9 +183,15 @@ def command_init(args: argparse.Namespace) -> dict:
         "rtl": args.rtl,
         "testbench": getattr(args, "tb", []),
         "eda_compile": {
+            "working_directory": ".",
+            "filelists": getattr(args, "eda_filelist", []),
             "sources": (
                 getattr(args, "eda_source", [])
-                or [*args.rtl, *getattr(args, "tb", [])]
+                or (
+                    []
+                    if getattr(args, "eda_filelist", [])
+                    else [*args.rtl, *getattr(args, "tb", [])]
+                )
             ),
             "include_dirs": getattr(args, "eda_include_dir", []),
             "defines": getattr(args, "eda_define", []),

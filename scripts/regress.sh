@@ -51,6 +51,7 @@ case "${profile}" in
       '  child u_child(.clk_i(clk_i));' \
       'endmodule' \
       >"${probe_dir}/top.sv"
+    printf '%s\n' 'top.sv' >"${probe_dir}/rtl.f"
     printf '%s\n' \
       'schema_version: 1' \
       'name: vcs-probe' \
@@ -58,7 +59,9 @@ case "${profile}" in
       'reference_top: top' \
       'rtl: [top.sv]' \
       'eda_compile:' \
-      '  sources: [top.sv]' \
+      '  working_directory: .' \
+      '  filelists: [rtl.f]' \
+      '  sources: []' \
       '  include_dirs: []' \
       '  defines: []' \
       'graph:' \

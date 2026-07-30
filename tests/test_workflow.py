@@ -63,6 +63,11 @@ class WorkflowTest(unittest.TestCase):
             self.assertEqual(config["api_key_env"], "TEST_LLM_API_KEY")
             self.assertEqual(config["batch_max_chars"], 24000)
             self.assertEqual(config["response_format"], "json_object")
+            manifest = load_yaml(project / "manifest.yaml")
+            self.assertEqual(manifest["eda_compile"]["filelists"], [])
+            self.assertEqual(
+                manifest["eda_compile"]["working_directory"], "."
+            )
 
     def test_semantic_spec_extraction_is_optional_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

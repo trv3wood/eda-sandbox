@@ -7,12 +7,14 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from .io import (
     dump_json, file_digest, load_json, load_yaml, project_paths,
-    relative_to_project, resolve_inputs, RTL_SOURCE_SUFFIXES,
+    relative_to_project, resolve_filelist_inputs, resolve_inputs,
+    RTL_SOURCE_SUFFIXES,
 )
 from .uhdm_export import export_uhdm_structure
 from .graph.finalize import finalize_graph
@@ -148,17 +150,60 @@ def _validated_cli(
     return result
 
 
-def _inputs(project: Path) -> tuple[dict[str, Any], list[Path], list[Path], list[str]]:
+@dataclass(frozen=True)
+class CompileInputs:
+    """保留原生编译配方和可审计依赖闭包。"""
+
+    manifest: dict[str, Any]
+    sources: list[Path]
+    filelists: list[Path]
+    all_filelists: list[Path]
+    source_files: list[Path]
+    include_dirs: list[Path]
+    defines: list[str]
+    working_directory: Path
+
+    @property
+    def audit_inputs(self) -> list[Path]:
+        return list(dict.fromkeys([*self.all_filelists, *self.source_files]))
+
+
+def _compile_inputs(project: Path) -> CompileInputs:
     manifest = load_yaml(project / "manifest.yaml")
     compile_config = manifest.get("eda_compile") or {}
+    if not isinstance(compile_config, dict):
+        raise ValueError("manifest eda_compile must be a mapping")
     excludes = compile_config.get("exclude_sources", [])
     if not isinstance(excludes, list) or not all(
         isinstance(value, str) and value for value in excludes
     ):
         raise ValueError("eda_compile.exclude_sources must be a list of strings")
+    working_value = compile_config.get("working_directory", ".")
+    if not isinstance(working_value, str) or not working_value:
+        raise ValueError("eda_compile.working_directory must be a string")
+    working_path = Path(working_value)
+    working_directory = (
+        working_path if working_path.is_absolute() else project / working_path
+    ).resolve()
+    if not working_directory.is_dir():
+        raise FileNotFoundError(
+            f"EDA working directory does not exist: {working_value}"
+        )
+    filelists, all_filelists, filelist_sources = resolve_filelist_inputs(
+        project,
+        compile_config.get("filelists", []),
+        working_directory=working_directory,
+    )
+    source_values = compile_config.get("sources")
+    if source_values is None:
+        source_values = [] if filelists else manifest.get("rtl", [])
+    if not isinstance(source_values, list) or not all(
+        isinstance(value, str) and value for value in source_values
+    ):
+        raise ValueError("eda_compile.sources must be a list of strings")
     sources = resolve_inputs(
         project,
-        compile_config.get("sources", manifest.get("rtl", [])),
+        source_values,
         directory_suffixes=set(RTL_SOURCE_SUFFIXES),
         exclude_values=excludes,
     )
@@ -174,9 +219,32 @@ def _inputs(project: Path) -> tuple[dict[str, Any], list[Path], list[Path], list
         isinstance(value, str) and value for value in defines
     ):
         raise ValueError("eda_compile.defines must be a list of strings")
-    if not sources:
-        raise ValueError("eda_compile sources are empty after exclude_sources")
-    return manifest, sources, include_dirs, defines
+    source_files = list(dict.fromkeys([*filelist_sources, *sources]))
+    if not source_files:
+        raise ValueError(
+            "eda_compile sources and filelist source closure are empty"
+        )
+    return CompileInputs(
+        manifest=manifest,
+        sources=sources,
+        filelists=filelists,
+        all_filelists=all_filelists,
+        source_files=source_files,
+        include_dirs=include_dirs,
+        defines=defines,
+        working_directory=working_directory,
+    )
+
+
+def _inputs(project: Path) -> tuple[dict[str, Any], list[Path], list[Path], list[str]]:
+    """兼容现有调用方，返回完整源码闭包而非 filelist 本身。"""
+    inputs = _compile_inputs(project)
+    return (
+        inputs.manifest,
+        inputs.source_files,
+        inputs.include_dirs,
+        inputs.defines,
+    )
 
 
 def _rtl_backend(manifest: dict[str, Any]) -> str:
@@ -216,8 +284,10 @@ def _producer_record(
     tools: dict[str, Any],
     sources: list[Path],
     versions: dict[str, str],
+    *,
+    compile_inputs: CompileInputs | None = None,
 ) -> dict[str, Any]:
-    return {
+    result = {
         "schema_version": 1,
         "producer": name,
         "image_revision": os.environ.get("IMAGE_REVISION", "unknown"),
@@ -228,18 +298,39 @@ def _producer_record(
         "versions": versions,
         "tools": tools,
     }
+    if compile_inputs is not None:
+        result["compile"] = {
+            "filelists": [str(path) for path in compile_inputs.filelists],
+            "all_filelists": [
+                str(path) for path in compile_inputs.all_filelists
+            ],
+            "filelist_source_closure": [
+                str(path)
+                for path in compile_inputs.source_files
+                if path not in compile_inputs.sources
+            ],
+            "appended_sources": [
+                str(path) for path in compile_inputs.sources
+            ],
+            "working_directory": str(compile_inputs.working_directory),
+        }
+    return result
 
 
 def produce_uhdm(project: Path) -> dict[str, Any]:
-    manifest, sources, include_dirs, defines = _inputs(project)
+    inputs = _compile_inputs(project)
+    manifest = inputs.manifest
+    sources = inputs.source_files
     paths = project_paths(project)
     work = paths["tools"] / "surelog-work"
     work.mkdir(parents=True, exist_ok=True)
     top = manifest.get("reference_top") or manifest.get("target_top") or manifest.get("top")
     command = [
-        "surelog", *(str(path) for path in sources),
-        *(f"-I{path}" for path in include_dirs),
-        *(f"-D{value}" for value in defines),
+        "surelog",
+        *(item for path in inputs.filelists for item in ("-f", str(path))),
+        *(str(path) for path in inputs.sources),
+        *(f"-I{path}" for path in inputs.include_dirs),
+        *(f"-D{value}" for value in inputs.defines),
         "-top", str(top), "-parse", "-elabuhdm",
     ]
     database = work / "slpp_all" / "surelog.uhdm"
@@ -329,11 +420,12 @@ def produce_uhdm(project: Path) -> dict[str, Any]:
             "uhdm_hier": uhdm_hier,
             "uhdm": uhdm,
         },
-        sources,
+        inputs.audit_inputs,
         {
             "surelog": _version(["surelog", "-version"]),
             "uhdm_binding": _version(["eda-uhdm", "version"]),
         },
+        compile_inputs=inputs,
     )
     dump_json(paths["tools"] / "producer-uhdm.json", result)
     return result
@@ -493,7 +585,9 @@ def _normalize_vcs_structure(
 
 def produce_vcs(project: Path) -> dict[str, Any]:
     """使用研发网 VCS elaboration 和零时刻 VPI 导出 RTL 结构。"""
-    manifest, sources, include_dirs, defines = _inputs(project)
+    inputs = _compile_inputs(project)
+    manifest = inputs.manifest
+    sources = inputs.source_files
     vcs_args, timeout = _vcs_config(manifest)
     paths = project_paths(project)
     work = paths["tools"] / "vcs-work"
@@ -530,15 +624,27 @@ def produce_vcs(project: Path) -> dict[str, Any]:
     )
     executable = work / "simv"
     executable.unlink(missing_ok=True)
+    vcs_make_directory = work / "csrc"
+    vcs_make_argument = (
+        []
+        if any(value.startswith("-Mdir") for value in vcs_args)
+        else [f"-Mdir={vcs_make_directory}"]
+    )
     if compile_plugin.get("status") == "passed" and library.is_file():
         vcs = _run(
             [
                 "vcs",
                 "-full64",
                 "-sverilog",
-                *(str(path) for path in sources),
-                *(f"+incdir+{path}" for path in include_dirs),
-                *(f"+define+{value}" for value in defines),
+                *(
+                    item
+                    for path in inputs.filelists
+                    for item in ("-f", str(path))
+                ),
+                *(str(path) for path in inputs.sources),
+                *(f"+incdir+{path}" for path in inputs.include_dirs),
+                *(f"+define+{value}" for value in inputs.defines),
+                *vcs_make_argument,
                 *vcs_args,
                 "-top",
                 str(top),
@@ -547,7 +653,7 @@ def produce_vcs(project: Path) -> dict[str, Any]:
                 "-o",
                 str(executable),
             ],
-            work,
+            inputs.working_directory,
             paths["tools"] / "vcs.log",
             timeout=timeout,
         )
@@ -564,7 +670,7 @@ def produce_vcs(project: Path) -> dict[str, Any]:
         environment["TLM_GRAPH_OUTPUT"] = str(raw_path)
         simulation = _run(
             [str(executable)],
-            work,
+            inputs.working_directory,
             paths["tools"] / "vcs-vpi-run.log",
             env=environment,
             timeout=timeout,
@@ -622,11 +728,12 @@ def produce_vcs(project: Path) -> dict[str, Any]:
             "vpi_export": simulation,
             "rtl": rtl,
         },
-        sources,
+        inputs.audit_inputs,
         {
             "vcs": _version(["vcs", "-ID"]),
             "cc": _version([compiler, "--version"]),
         },
+        compile_inputs=inputs,
     )
     dump_json(paths["tools"] / "producer-vcs-vpi.json", result)
     return result
@@ -702,7 +809,9 @@ def finalize_tools(project: Path) -> dict[str, Any]:
     if file_digest(structure_path) != structure_record.get("sha256"):
         fail(f"{backend} structure artifact digest mismatch")
     structure = load_json(structure_path)
-    manifest, host_sources, _, _ = _inputs(project)
+    compile_inputs = _compile_inputs(project)
+    manifest = compile_inputs.manifest
+    host_sources = compile_inputs.source_files
     expected_structure_backend = (
         "vcs-vpi" if backend == "vcs-vpi" else "uhdm-python-vpi"
     )
@@ -747,7 +856,9 @@ def finalize_tools(project: Path) -> dict[str, Any]:
             != backend_artifact.get("sha256")
         ):
             fail("VCS backend artifact is missing, changed, or inconsistent")
-    expected_inputs = sorted(file_digest(source) for source in host_sources)
+    expected_inputs = sorted(
+        file_digest(path) for path in compile_inputs.audit_inputs
+    )
     for producer, record in producer_records.items():
         if (
             record.get("schema_version") != 1

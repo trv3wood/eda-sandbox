@@ -29,7 +29,7 @@ PROJECT/
     │   └── {entities,relationships}.jsonl
     ├── contracts/{architecture,conflicts,approval}.yaml
     ├── model/
-    └── verification/report.yaml
+    └── verification/report.json.
 ```
 
 `manifest.yaml` 用于区分待生成的模型与已有的验证源：
@@ -49,8 +49,29 @@ backend: local
 
 `target_top` 是待生成的 DUT。`reference_top` 是已有的黄金 RTL 模块，供
 所选 EDA 后端结构化 elaboration 使用。默认 VCS 后端接收
-`eda_compile.sources`（未配置时使用 `rtl`）以及对应的 include
-directory、define 和可选 `vcs_args`。
+`eda_compile.filelists` 和追加在清单后的 `sources`，以及对应的 include
+directory、define 和可选 `vcs_args`。没有 filelist 且未配置 `sources` 时，
+才回退使用 `rtl`。
+
+工业工程建议保留原始编译清单：
+
+```yaml
+eda_compile:
+  working_directory: .
+  filelists:
+    - rtl/top.f
+  sources:
+    - rtl/extra_wrapper.sv
+  include_dirs: []
+  defines: []
+  vcs_args:
+    - -kdb
+```
+
+顶层 filelist 按声明顺序原样以 `-f` 交给EDA工具，`sources` 按声明顺序追加。
+Agent递归解析 `-f/-F`、`-v` 和裸 `.v/.sv/.svp` 路径，仅用于输入摘要和源码
+定位，不重建或重排filelist中的编译参数。VCS从 `working_directory`（默认项目根）
+启动；`-f`内容中的相对路径按该目录解析，`-F`包含的清单内容按被包含清单目录解析。
 
 语义 Spec 图默认关闭，功能合同可直接引用确定性 `text_units.jsonl` 中的
 `txt-*` ID。需要细粒度语义实体时，再显式启用支持 OpenAI-compatible JSON
@@ -85,10 +106,11 @@ graph:
 ```bash
 scripts/systemc-tlm-agent init PROJECT \
   --name ctrl --top TopModule --reference-top RefModule \
-  --rtl ref.sv --tb test.sv --backend local
+  --eda-filelist rtl/top.f --backend local
 ```
 
-`--docx`、`--xlsx`、`--rtl` 和 `--tb` 可重复指定。RTL 参数也可以命名为目录或
+`--docx`、`--xlsx`、`--rtl`、`--tb`、`--eda-filelist` 和 `--eda-source`
+可重复指定。`--eda-source` 总是追加在全部filelist之后。RTL参数也可以命名为目录或
 glob 模式；目录会递归发现 `.v`、`.sv` 和 `.svp`。旧版 manifest 中使用 `top`
 而非 `target_top` 的写法仍然可读。
 
@@ -127,8 +149,8 @@ scripts/eda-run --work WORK agent \
   systemc-tlm-agent graph build /workspace/PROJECT
 ```
 
-`eda_compile.sources` 是 EDA 编译文件集；`include_dirs`、`defines` 和可选
-`vcs_args` 会传给 VCS producer。对于包含共享 primitive
+`eda_compile.filelists` 保留工程原始编译顺序，`sources` 是追加源；
+`include_dirs`、`defines` 和可选 `vcs_args` 会传给 VCS producer。对于包含共享 primitive
 目录的 IP，可用 `exclude_sources`（文件、目录或 glob 列表）排除与该 top 无关、
 但依赖未被检出的模块。
 
