@@ -45,7 +45,8 @@ The VCS producer always runs this fixed sequence:
 
 1. compile the packaged C/VPI exporter against `$VCS_HOME/include`
 2. run VCS compilation/elaboration for `reference_top`, preserving ordered
-   `eda_compile.filelists` as native `-f` arguments
+   `eda_compile.filelists` as native `-f` arguments and defaulting to
+   `-debug_access+all` unless the project explicitly configures debug access
 3. run `simv` and export structure from `cbStartOfSimulation`
 4. validate the unique top, input and artifact digests, and structure schema
 

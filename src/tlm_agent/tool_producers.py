@@ -464,6 +464,13 @@ def _vcs_config(manifest: dict[str, Any]) -> tuple[list[str], int]:
     return vcs_args, timeout
 
 
+def _vcs_debug_arguments(vcs_args: list[str]) -> list[str]:
+    """默认保留完整 VPI 可见性，同时允许工程显式覆盖。"""
+    if any(value.startswith("-debug_access") for value in vcs_args):
+        return []
+    return ["-debug_access+all"]
+
+
 def _normalize_vcs_structure(
     raw: dict[str, Any],
     *,
@@ -630,6 +637,7 @@ def produce_vcs(project: Path) -> dict[str, Any]:
         if any(value.startswith("-Mdir") for value in vcs_args)
         else [f"-Mdir={vcs_make_directory}"]
     )
+    vcs_debug_arguments = _vcs_debug_arguments(vcs_args)
     if compile_plugin.get("status") == "passed" and library.is_file():
         vcs = _run(
             [
@@ -645,6 +653,7 @@ def produce_vcs(project: Path) -> dict[str, Any]:
                 *(f"+incdir+{path}" for path in inputs.include_dirs),
                 *(f"+define+{value}" for value in inputs.defines),
                 *vcs_make_argument,
+                *vcs_debug_arguments,
                 *vcs_args,
                 "-top",
                 str(top),
