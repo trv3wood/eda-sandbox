@@ -232,15 +232,31 @@ add_test(NAME contract::{test['id']} COMMAND contract_{test_id})
 set_tests_properties(contract::{test['id']} PROPERTIES TIMEOUT {timeout})"""
         )
     contract_test_cmake = "\n\n".join(contract_tests)
-    return f"""cmake_minimum_required(VERSION 3.24)
+    return f"""cmake_minimum_required(VERSION 3.16)
 project(generated_systemc_model LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-find_package(SystemCLanguage CONFIG REQUIRED)
-find_package(scc CONFIG QUIET)
+find_package(SystemCLanguage CONFIG QUIET)
+if(NOT TARGET SystemC::systemc)
+    find_path(SYSTEMC_INCLUDE_DIR systemc
+        HINTS $ENV{{SYSTEMC_HOME}}
+        PATH_SUFFIXES include)
+    find_library(SYSTEMC_LIBRARY NAMES systemc
+        HINTS $ENV{{SYSTEMC_HOME}}
+        PATH_SUFFIXES lib lib64)
+    if(NOT SYSTEMC_INCLUDE_DIR OR NOT SYSTEMC_LIBRARY)
+        message(FATAL_ERROR
+            "SystemC was not found. Set CMAKE_PREFIX_PATH or SYSTEMC_HOME.")
+    endif()
+    add_library(SystemC::systemc UNKNOWN IMPORTED)
+    set_target_properties(SystemC::systemc PROPERTIES
+        IMPORTED_LOCATION "${{SYSTEMC_LIBRARY}}"
+        INTERFACE_INCLUDE_DIRECTORIES "${{SYSTEMC_INCLUDE_DIR}}")
+endif()
+find_package(scc CONFIG REQUIRED)
 
 add_library(generated_model
     {sources}
@@ -254,6 +270,8 @@ if(TARGET scc::scc)
 elseif(TARGET scc)
     target_link_libraries(generated_model PUBLIC scc)
     target_compile_definitions(generated_model PUBLIC MODEL_HAS_SCC=1)
+else()
+    message(FATAL_ERROR "The installed scc package exports no supported target.")
 endif()
 
 enable_testing()

@@ -15,7 +15,7 @@ Roles:
   uhdm        Surelog and direct UHDM Python queries
   rtl         RTL simulation and differential-test tooling
   scc         SystemC/SCC compilation and verification
-  rocky       Rocky Linux 8 compatibility toolchain
+  rocky       Rocky Linux 8 SystemC/minres-SCC SDK
 
 Options:
   --work DIR       Work root; /workspace paths are translated for agent (default: current directory)
@@ -29,7 +29,8 @@ Environment:
   EDA_CONTAINER_ENGINE  podman or docker
   EDA_IMAGE_PREFIX      default: ghcr.io/trv3wood
   EDA_IMAGE_TAG         default: main
-  EDA_UHDM_IMAGE, EDA_RTL_IMAGE, EDA_SCC_IMAGE, EDA_ROCKY_IMAGE
+  EDA_UHDM_IMAGE, EDA_RTL_IMAGE, EDA_SCC_IMAGE, EDA_ROCKY_SCC_IMAGE
+  EDA_ROCKY_IMAGE and EDA_ENTERPRISE_IMAGE remain supported as legacy aliases.
 
 Examples:
   scripts/eda-run uhdm surelog --version
@@ -116,8 +117,8 @@ case "${role}" in
     image_name="eda-scc"
     ;;
   rocky|enterprise)
-    role_image="${EDA_ROCKY_IMAGE:-${EDA_ENTERPRISE_IMAGE:-}}"
-    image_name="eda-enterprise"
+    role_image="${EDA_ROCKY_IMAGE:-${EDA_ROCKY_SCC_IMAGE:-${EDA_ROCKY_SYSTEMC_IMAGE:-${EDA_ENTERPRISE_IMAGE:-}}}}"
+    image_name="eda-scc-rocky8"
     ;;
   *)
     printf 'ERROR: unknown role: %s\n' "${role}" >&2

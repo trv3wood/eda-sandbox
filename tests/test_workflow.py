@@ -434,6 +434,18 @@ int sc_main(int, char**) {
                 (paths["model"] / "CMakeLists.txt").read_text(),
             )
             self.assertIn(
+                "find_package(SystemCLanguage CONFIG QUIET)",
+                (paths["model"] / "CMakeLists.txt").read_text(),
+            )
+            self.assertIn(
+                "Set CMAKE_PREFIX_PATH or SYSTEMC_HOME.",
+                (paths["model"] / "CMakeLists.txt").read_text(),
+            )
+            self.assertIn(
+                "find_package(scc CONFIG REQUIRED)",
+                (paths["model"] / "CMakeLists.txt").read_text(),
+            )
+            self.assertIn(
                 "simple_target_socket_optional<PacketServiceModel> submit",
                 (paths["model"] / "include" / "packet_service.hpp").read_text(),
             )
