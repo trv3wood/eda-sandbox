@@ -88,7 +88,9 @@ scripts/systemc-tlm-agent init PROJECT \
   --rtl ref.sv --tb test.sv --backend local
 ```
 
-`--docx`、`--xlsx`、`--rtl` 和 `--tb` 可重复指定。RTL 参数也可以命名为目录或 glob 模式。旧版 manifest 中使用 `top` 而非 `target_top` 的写法仍然可读。
+`--docx`、`--xlsx`、`--rtl` 和 `--tb` 可重复指定。RTL 参数也可以命名为目录或
+glob 模式；目录会递归发现 `.v`、`.sv` 和 `.svp`。旧版 manifest 中使用 `top`
+而非 `target_top` 的写法仍然可读。
 
 #### `extract`
 

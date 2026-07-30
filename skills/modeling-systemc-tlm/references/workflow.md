@@ -32,8 +32,9 @@ systemc-tlm-agent init PROJECT --name NAME --top RTL_TOP \
 ```
 
 The manifest paths are relative to `PROJECT`. RTL entries accept files, glob
-patterns, or directories. Directories are searched recursively for `.v` and
-`.sv` files. `target_top` is the DUT/model to generate; `reference_top` is an
+patterns, or directories. Directories are searched recursively for `.v`,
+`.sv`, and `.svp` files. `target_top` is the DUT/model to generate;
+`reference_top` is an
 existing golden RTL module used for structural EDA. Testbench inputs are parsed
 by the configured EDA backend. RTL may
 be omitted when it is not yet available. Extraction then continues with the

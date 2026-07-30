@@ -12,7 +12,7 @@ from typing import Any
 
 from .io import (
     dump_json, file_digest, load_json, load_yaml, project_paths,
-    relative_to_project, resolve_inputs,
+    relative_to_project, resolve_inputs, RTL_SOURCE_SUFFIXES,
 )
 from .uhdm_export import export_uhdm_structure
 from .graph.finalize import finalize_graph
@@ -159,7 +159,7 @@ def _inputs(project: Path) -> tuple[dict[str, Any], list[Path], list[Path], list
     sources = resolve_inputs(
         project,
         compile_config.get("sources", manifest.get("rtl", [])),
-        directory_suffixes={".v", ".sv"},
+        directory_suffixes=set(RTL_SOURCE_SUFFIXES),
         exclude_values=excludes,
     )
     include_dirs = []
