@@ -11,12 +11,23 @@ from tlm_agent.io import dump_yaml, load_json, load_yaml, project_paths
 from tlm_agent.tool_producers import (
     _compile_inputs,
     _normalize_vcs_structure,
+    _vcs_debug_arguments,
     finalize_tools,
     produce_vcs,
 )
 
 
 class VcsProducerTest(unittest.TestCase):
+    def test_debug_access_defaults_and_explicit_override(self) -> None:
+        self.assertEqual(
+            _vcs_debug_arguments([]),
+            ["-debug_access+all"],
+        )
+        self.assertEqual(
+            _vcs_debug_arguments(["-debug_access+pp"]),
+            [],
+        )
+
     @staticmethod
     def _project(root: Path) -> tuple[Path, Path]:
         rtl = root / "top.sv"
@@ -225,6 +236,7 @@ class VcsProducerTest(unittest.TestCase):
             )
             self.assertNotIn(str(rtl.resolve()), vcs_command)
             self.assertIn("+define+FEATURE=1", vcs_command)
+            self.assertEqual(vcs_command.count("-debug_access+all"), 1)
             self.assertIn("-timescale=1ns/1ps", vcs_command)
             self.assertTrue(
                 any(

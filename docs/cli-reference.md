@@ -154,6 +154,10 @@ scripts/eda-run --work WORK agent \
 目录的 IP，可用 `exclude_sources`（文件、目录或 glob 列表）排除与该 top 无关、
 但依赖未被检出的模块。
 
+VCS producer 默认加入 `-debug_access+all`，确保零时刻VPI exporter能够遍历完整
+设计层次和debug database。若 `vcs_args` 已显式包含任意 `-debug_access...`，
+producer尊重工程配置且不重复注入默认值。
+
 #### `graph`
 
 `graph build` 将规范 JSONL 转成 DuckDB 可查询的 Parquet；`graph index` 使用
