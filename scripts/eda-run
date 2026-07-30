@@ -11,6 +11,7 @@ Usage:
 
 Roles:
   agent       Local uv workflow and graph/spec tooling
+  vcs         Local VCS/VPI RTL graph production（继承当前研发网许可证环境）
   uhdm        Surelog and direct UHDM Python queries
   rtl         RTL simulation and differential-test tooling
   scc         SystemC/SCC compilation and verification
@@ -32,6 +33,7 @@ Environment:
 
 Examples:
   scripts/eda-run uhdm surelog --version
+  scripts/eda-run --work workspace vcs eda-rtl-produce /workspace/projects/example
   scripts/eda-run --work workspace agent systemc-tlm-agent status /workspace/projects/example
   scripts/eda-run uhdm eda-uhdm run /workspace/design.uhdm \
     /workspace/query.py --output-dir /workspace/query-output
@@ -99,7 +101,7 @@ if [[ "${1:-}" == "--shell" ]]; then
 fi
 
 case "${role}" in
-  agent)
+  agent|vcs)
     ;;
   uhdm)
     role_image="${EDA_UHDM_IMAGE:-}"
@@ -137,7 +139,7 @@ work_dir="$(realpath "${work_dir}")"
   exit 2
 }
 
-if [[ "${role}" == "agent" ]]; then
+if [[ "${role}" == "agent" || "${role}" == "vcs" ]]; then
   if [[ "${shell_mode}" == true ]]; then
     [[ $# -eq 0 ]] || {
       printf 'ERROR: --shell does not accept a command\n' >&2

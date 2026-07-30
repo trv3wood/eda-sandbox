@@ -84,20 +84,19 @@ scripts/systemc-tlm-agent verify PROJECT --backend auto
 
 `extract` 会读取 DOCX/OOXML、Markdown 和 XLSX，生成 document tree 与 text
 units，并登记 manifest 中的 RTL 输入。
-RTL 结构只接受通过固定 UHDM 流程产生的事实：Surelog 生成数据库，
-Surelog 的零错误摘要和非空二进制 `.uhdm` 验证 elaboration，`uhdm-lint` 检查数据库，
-`uhdm-hier --line` 验证请求的 top，最后由官方 UHDM Python VPI binding 导出
-module/instance/port/signal/parameter/package 实体和确定性关系。不存在 RTL 文本或
-正则 fallback。
+RTL 结构只接受通过配置 EDA 门禁产生的事实。新项目默认使用 VCS elaboration，
+由随包发布的 C/VPI 插件在 `cbStartOfSimulation` 导出
+module/instance/port/signal/parameter/package，再校验 top、输入和工件摘要。
+旧项目可显式选择 Surelog/UHDM 兼容后端。不存在 RTL 文本或正则 fallback。
 
-主机先通过本地 `uv` 运行工作流和规格 producer；缺少 EDA 工具时，再使用
-UHDM 角色镜像产生结构结果：
+办公网通过本地 `uv` 运行工作流和规格 producer；商业 RTL producer 在研发网
+本机运行并继承当前 VCS 许可证环境：
 
 ```bash
 scripts/systemc-tlm-agent extract PROJECT --skip-tools
 # 可选：仅当 graph.spec_extraction.enabled: true
 scripts/eda-run --work WORK agent eda-spec-produce /workspace/PROJECT
-scripts/eda-run --work WORK uhdm eda-uhdm-produce /workspace/PROJECT
+scripts/eda-run --work WORK vcs eda-rtl-produce /workspace/PROJECT
 scripts/eda-run --work WORK agent \
   systemc-tlm-agent tools finalize /workspace/PROJECT
 ```
@@ -105,11 +104,11 @@ scripts/eda-run --work WORK agent \
 默认关闭语义 Spec 抽取，document tree 产生的稳定 `txt-*` text-unit ID 可直接作为
 合同证据；需要语义实体与关系时，再设置 `graph.spec_extraction.enabled: true`。
 `--skip-tools` 会让必需的 RTL producer 保持 pending。CLI 校验 top、
-数据库/结构摘要、producer 输入摘要和图引用完整性全部通过，且 `tools finalize` 发布
+原生工件/结构摘要、producer 输入摘要和图引用完整性全部通过，且 `tools finalize` 发布
 `status: ready` 后，architecture 才能批准。启用 Spec producer 后，其 source span
 校验也必须通过；任一必需或已启用步骤失败都会保留失败状态并阻断审批。
 
-UHDM Python 脚本输出仅用于探索和定位；合同只能引用 canonical graph 中带
+临时 EDA 查询输出仅用于探索和定位；合同只能引用 canonical graph 中带
 source span 的实体。
 
 ## Architecture v4、合同测试与 Implementer handoff
@@ -166,5 +165,5 @@ operation 规则保留为实现提示。生成器不自动连接 channel，也�
 ## 维护约束
 
 - 改动 architecture schema 时，同时更新草案、validator、generator、角色说明和测试。
-- 不要将 UHDM 探索输出直接写入 evidence；不要把一个 EDA backend 的成功外推到另一个。
+- 不要将临时 EDA 探索输出直接写入 evidence；不要把一个 EDA backend 的成功外推到另一个。
 - 大镜像拉取、容器构建和 minres-SCC 编译可能耗时，应由用户显式执行。

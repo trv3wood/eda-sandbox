@@ -49,7 +49,12 @@ class WorkflowTest(unittest.TestCase):
 
             command_init(args)
 
-            config = load_yaml(project / "manifest.yaml")["graph"]["spec_extraction"]
+            graph_config = load_yaml(project / "manifest.yaml")["graph"]
+            self.assertEqual(
+                graph_config["rtl_extraction"],
+                {"backend": "vcs-vpi", "timeout_seconds": 1800},
+            )
+            config = graph_config["spec_extraction"]
             self.assertFalse(config["enabled"])
             self.assertEqual(config["provider"], "openai-compatible")
             self.assertEqual(config["model"], "test-model")

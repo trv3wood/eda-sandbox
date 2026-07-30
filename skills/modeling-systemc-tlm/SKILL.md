@@ -11,14 +11,15 @@ Use the deterministic CLI for artifact production. Use agent reasoning to interp
 
 1. Read `references/workflow.md`, then inspect the project manifest and current status.
 2. Run `scripts/systemc-tlm-agent extract PROJECT --skip-tools`, then run the
-   UHDM producer and `tools finalize` as described in `references/tooling.md`.
+   configured RTL producer and `tools finalize` as described in
+   `references/tooling.md`.
    Spec semantic extraction is optional and runs only when
    `graph.spec_extraction.enabled` is true.
 3. Assign source-backed graph entity IDs or deterministic text-unit IDs to
-   claims. Surelog/UHDM supplies the canonical RTL structure; optional
-   schema-constrained Spec extraction supplies semantic entities. UHDM remains
-   the canonical RTL structure source; exploratory queries do not create
-   additional truth stores.
+   claims. A validated VCS/VPI elaboration is the default canonical RTL
+   structure source; legacy projects may explicitly select Surelog/UHDM.
+   Optional schema-constrained Spec extraction supplies semantic entities.
+   Exploratory queries do not create additional truth stores.
 4. Run `scripts/systemc-tlm-agent architect PROJECT`.
 5. Complete all eight contract categories according to `references/contracts.md`. Record contradictions in `contracts/conflicts.yaml`.
 6. Write executable SystemC/TLM black-box contract tests under
@@ -42,8 +43,9 @@ Follow `references/roles.md`. Keep Planner, Evidence Extractor, Architect, Imple
 
 - Treat Spec and RTL as ground truth sources. Preserve source location, digest,
   and graph entity ID for every extracted claim.
-- Do not use regular-expression RTL extraction. With RTL inputs, a validated
-  UHDM elaboration and UHDM-derived structure are mandatory.
+- Do not use regular-expression RTL extraction. With RTL inputs, the configured
+  EDA backend must pass elaboration, structure export, source/top and digest
+  gates before publishing graph facts.
 - Model at loosely timed TLM-2.0 transaction granularity unless the approved contract explicitly requires finer timing.
 - Isolate minres-SCC usage behind adapters so the functional model remains testable with standard SystemC.
 - Represent latency, queues, arbitration, backpressure, errors, register side effects, interrupts, and completion conditions explicitly when supported by evidence.
@@ -66,19 +68,20 @@ from the repository's general SystemC/TLM support.
 
 Read `references/tooling.md` before choosing local or container execution. Do not launch large image builds or minres-SCC recompiles automatically; provide the exact command for the user to run.
 An absent host executable is not a tool failure until the corresponding
-`scripts/eda-run` role has also been checked. Reuse an existing UHDM database
-or JSON bundle before regenerating it.
+`scripts/eda-run` role has also been checked. Reuse an existing validated
+structure artifact before regenerating it.
 
 ## EDA Query Recipes
 
-Treat exploratory UHDM query failures and missing artifacts as limitations to
-report; the thin runner never defines canonical graph facts.
+Treat exploratory EDA query failures and missing artifacts as limitations to
+report; exploratory output never defines canonical graph facts.
 
-The fixed producer flow is `surelog -parse -elabuhdm` (which emits the binary
-`.uhdm`),
-`uhdm-lint`, `uhdm-hier --line`, then the official Python VPI exporter.
-Only after those gates pass may `tools finalize` publish RTL graph entities
-and relationships.
+The default producer flow compiles the packaged VPI exporter, runs VCS
+elaboration, exports structure at `cbStartOfSimulation` without advancing
+simulation time, and validates the requested top, input digests and structure
+artifact. Only after those gates pass may `tools finalize` publish RTL graph
+entities and relationships. The explicit `uhdm` compatibility backend retains
+the fixed Surelog/UHDM sequence.
 
 For an additional question against a validated
 `tools/surelog-work/slpp_all/surelog.uhdm`, write a small Python query against

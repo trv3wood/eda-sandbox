@@ -188,6 +188,10 @@ def command_init(args: argparse.Namespace) -> dict:
         },
         "backend": args.backend,
         "graph": {
+            "rtl_extraction": {
+                "backend": "vcs-vpi",
+                "timeout_seconds": 1800,
+            },
             "spec_extraction": {
                 "enabled": False,
                 "provider": "openai-compatible",
