@@ -1,8 +1,15 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-skill_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-repo_root="${SYSTEMC_TLM_AGENT_ROOT:-$(cd -- "$skill_dir/../.." && pwd)}"
+# Claude/Codex 会把 skill 目录链接到各自的配置目录。必须先解析 wrapper
+# 自身的物理路径，否则从 ~/.claude/skills/... 计算会误得到 ~/.claude。
+script_path="$(realpath -- "${BASH_SOURCE[0]}")"
+skill_dir="$(cd -- "$(dirname -- "$script_path")/.." && pwd -P)"
+if [[ -n "${SYSTEMC_TLM_AGENT_ROOT:-}" ]]; then
+  repo_root="$(realpath -- "${SYSTEMC_TLM_AGENT_ROOT}")"
+else
+  repo_root="$(cd -- "$skill_dir/../.." && pwd -P)"
+fi
 
 if [[ -d "$repo_root/src/tlm_agent" ]]; then
   export PYTHONPATH="$repo_root/src${PYTHONPATH:+:$PYTHONPATH}"
