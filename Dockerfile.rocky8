@@ -26,7 +26,7 @@ RUN curl -fsSL \
         -o /usr/local/bin/micromamba && \
     chmod 0755 /usr/local/bin/micromamba
 
-FROM rocky-base AS scc-compile
+FROM rocky-base AS scc-deps
 
 ARG SCC_VERSION=2026.05
 
@@ -43,7 +43,12 @@ RUN cd /tmp/scc-src && \
     /opt/conda/envs/build/bin/conan install . \
         --output-folder=/tmp/scc-conan \
         --deployer=full_deploy \
-        --build=missing -s build_type=Release
+        --build=missing \
+        --build=b2 \
+        -s build_type=Release
+
+FROM scc-deps AS scc-compile
+
 RUN cd /tmp/scc-src && \
     /opt/conda/envs/build/bin/cmake -S . -B /tmp/scc-build -G Ninja \
         -DCMAKE_TOOLCHAIN_FILE=/tmp/scc-conan/build/Release/generators/conan_toolchain.cmake \
