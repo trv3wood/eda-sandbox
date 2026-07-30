@@ -7,8 +7,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tlm_agent.extractors import extract_project
-from tlm_agent.io import dump_yaml, load_json, project_paths
+from tlm_agent.io import dump_yaml, load_json, load_yaml, project_paths
 from tlm_agent.tool_producers import (
+    _compile_inputs,
     _normalize_vcs_structure,
     finalize_tools,
     produce_vcs,
@@ -115,6 +116,53 @@ class VcsProducerTest(unittest.TestCase):
             )
             self.assertEqual(structure["packages"][0]["name"], "cfg_pkg")
 
+    def test_nested_filelists_preserve_dependency_order(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            lists = project / "lists"
+            rtl = project / "rtl"
+            lists.mkdir()
+            rtl.mkdir()
+            package = rtl / "cfg.svp"
+            top = rtl / "top.sv"
+            extra = rtl / "extra.sv"
+            for path in (package, top, extra):
+                path.write_text("module fixture; endmodule\n", encoding="utf-8")
+            nested = lists / "common.f"
+            nested.write_text("../rtl/cfg.svp\n", encoding="utf-8")
+            root = lists / "top.f"
+            root.write_text(
+                "-F lists/common.f\nrtl/top.sv\n",
+                encoding="utf-8",
+            )
+            dump_yaml(
+                project / "manifest.yaml",
+                {
+                    "target_top": "top",
+                    "rtl": [],
+                    "eda_compile": {
+                        "filelists": ["lists/top.f"],
+                        "sources": ["rtl/extra.sv"],
+                    },
+                },
+            )
+
+            inputs = _compile_inputs(project)
+            summary = extract_project(project, run_tools=False)
+
+            self.assertEqual(inputs.filelists, [root.resolve()])
+            self.assertEqual(
+                inputs.all_filelists,
+                [root.resolve(), nested.resolve()],
+            )
+            self.assertEqual(
+                inputs.source_files,
+                [package.resolve(), top.resolve(), extra.resolve()],
+            )
+            self.assertEqual(summary["filelist_count"], 2)
+            self.assertEqual(summary["rtl_file_count"], 3)
+            self.assertTrue(summary["rtl_available"])
+
     @patch("tlm_agent.tool_producers._version", return_value="fixture-version")
     @patch("tlm_agent.tool_producers._vcs_home")
     @patch("tlm_agent.tool_producers._run")
@@ -123,6 +171,12 @@ class VcsProducerTest(unittest.TestCase):
     ) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             project, rtl = self._project(Path(temporary))
+            filelist = project / "rtl.f"
+            filelist.write_text("top.sv\n", encoding="utf-8")
+            manifest = load_yaml(project / "manifest.yaml")
+            manifest["eda_compile"]["filelists"] = ["rtl.f"]
+            manifest["eda_compile"]["sources"] = []
+            dump_yaml(project / "manifest.yaml", manifest)
             install = project / "vcs"
             (install / "include").mkdir(parents=True)
             (install / "include" / "vpi_user.h").write_text("", encoding="utf-8")
@@ -155,7 +209,21 @@ class VcsProducerTest(unittest.TestCase):
             finalized = finalize_tools(project)
 
             self.assertEqual(result["tools"]["rtl"]["status"], "passed")
+            self.assertEqual(
+                result["compile"]["filelists"],
+                [str(filelist.resolve())],
+            )
+            self.assertEqual(
+                result["compile"]["filelist_source_closure"],
+                [str(rtl.resolve())],
+            )
             vcs_command = run.call_args_list[1].args[0]
+            filelist_index = vcs_command.index("-f")
+            self.assertEqual(
+                vcs_command[filelist_index + 1],
+                str(filelist.resolve()),
+            )
+            self.assertNotIn(str(rtl.resolve()), vcs_command)
             self.assertIn("+define+FEATURE=1", vcs_command)
             self.assertIn("-timescale=1ns/1ps", vcs_command)
             self.assertTrue(

@@ -20,7 +20,7 @@ manifest.yaml
   contracts/approval.yaml
   contracts/testbench/{testbench.yaml,include/,tests/}
   model/
-  verification/report.yaml
+  verification/report.json
 ```
 
 Initialize:
@@ -52,6 +52,13 @@ flow. The Spec producer is optional and runs only when
 Schema and rejects output without exact source spans. There is no RTL text or
 regular-expression fallback.
 Architecture validation and approval require a ready canonical graph.
+
+For industrial compile flows, prefer ordered `eda_compile.filelists`. Top-level
+filelists are passed verbatim to the EDA backend with `-f`; recursively parsed
+filelist and RTL dependencies are used only for digests and source mapping.
+Additional `eda_compile.sources` are appended after all top-level filelists.
+The backend runs from `eda_compile.working_directory` (the project root by
+default), preserving native `-f` versus `-F` relative-path semantics.
 
 Architecture is a human/agent-authored decision artifact. Each complete claim
 has one or more `evidence_ids` resolving to source-backed graph entities or

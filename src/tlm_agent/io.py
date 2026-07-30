@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import re
+import shlex
 from pathlib import Path
 from typing import Any
 
@@ -103,6 +106,108 @@ def resolve_inputs(
         )
     )
     return [path for path in resolved if path not in excluded]
+
+
+def resolve_filelist_inputs(
+    project_dir: Path,
+    values: list[str],
+    *,
+    working_directory: Path | None = None,
+) -> tuple[list[Path], list[Path], list[Path]]:
+    """解析 VCS 风格 filelist 的嵌套清单和源码依赖。
+
+    返回顶层 filelist、包含嵌套清单的全部 filelist，以及按清单首次出现
+    顺序排列的 RTL 源文件。解析结果只用于摘要和源码定位；EDA 命令仍原样
+    使用顶层 ``-f``，不会由这里重建编译参数。
+    """
+    if not isinstance(values, list) or not all(
+        isinstance(value, str) and value for value in values
+    ):
+        raise ValueError("eda_compile.filelists must be a list of strings")
+    compile_root = (working_directory or project_dir).resolve()
+    if not compile_root.is_dir():
+        raise FileNotFoundError(
+            f"EDA working directory does not exist: {compile_root}"
+        )
+    roots = resolve_inputs(project_dir, values) if values else []
+    all_filelists: list[Path] = []
+    sources: list[Path] = []
+    visited: set[tuple[Path, Path]] = set()
+    active: list[Path] = []
+
+    def resolve_token(base: Path, token: str) -> Path:
+        expanded = os.path.expandvars(os.path.expanduser(token))
+        if "$" in expanded:
+            raise ValueError(f"unresolved environment variable in filelist: {token}")
+        path = Path(expanded)
+        return (path if path.is_absolute() else base / path).resolve()
+
+    def add_source(base: Path, token: str, owner: Path) -> None:
+        source = resolve_token(base, token)
+        if source.suffix.lower() not in RTL_SOURCE_SUFFIXES:
+            return
+        if not source.is_file():
+            raise FileNotFoundError(f"{owner}: RTL source does not exist: {token}")
+        if source not in sources:
+            sources.append(source)
+
+    def visit(path: Path, content_base: Path) -> None:
+        resolved = path.resolve()
+        if resolved in active:
+            chain = " -> ".join(str(item) for item in [*active, resolved])
+            raise ValueError(f"recursive filelist include: {chain}")
+        visit_key = (resolved, content_base.resolve())
+        if visit_key in visited:
+            return
+        if not resolved.is_file():
+            raise FileNotFoundError(f"filelist does not exist: {resolved}")
+        visited.add(visit_key)
+        active.append(resolved)
+        if resolved not in all_filelists:
+            all_filelists.append(resolved)
+        # 常见工程允许 // 注释；只在行首或空白后识别，保留路径中的双斜线。
+        text = "\n".join(
+            re.sub(r"(?<!\S)//.*$", "", line)
+            for line in resolved.read_text(
+                encoding="utf-8", errors="replace"
+            ).splitlines()
+        )
+        try:
+            tokens = shlex.split(text, comments=True, posix=True)
+        except ValueError as exc:
+            raise ValueError(f"invalid filelist syntax in {resolved}: {exc}") from exc
+        index = 0
+        while index < len(tokens):
+            token = tokens[index]
+            if token in {"-f", "-F"}:
+                index += 1
+                if index >= len(tokens):
+                    raise ValueError(f"{resolved}: {token} requires a filelist path")
+                nested = resolve_token(content_base, tokens[index])
+                visit(
+                    nested,
+                    nested.parent if token == "-F" else compile_root,
+                )
+            elif token.startswith("-f") and len(token) > 2:
+                visit(resolve_token(content_base, token[2:]), compile_root)
+            elif token.startswith("-F") and len(token) > 2:
+                nested = resolve_token(content_base, token[2:])
+                visit(nested, nested.parent)
+            elif token == "-v":
+                index += 1
+                if index >= len(tokens):
+                    raise ValueError(f"{resolved}: -v requires an RTL source path")
+                add_source(content_base, tokens[index], resolved)
+            elif token.startswith("-v") and len(token) > 2:
+                add_source(content_base, token[2:], resolved)
+            elif not token.startswith(("-", "+")):
+                add_source(content_base, token, resolved)
+            index += 1
+        active.pop()
+
+    for root in roots:
+        visit(root, compile_root)
+    return roots, all_filelists, sources
 
 
 def relative_to_project(project_dir: Path, path: Path) -> str:
