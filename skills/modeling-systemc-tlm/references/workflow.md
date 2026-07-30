@@ -42,16 +42,19 @@ structural EDA tools. Extraction is deterministic and records source digests
 and locators. Re-run extraction whenever an input changes.
 
 With RTL inputs, `extract --skip-tools` creates source-located document units
-and a pending graph manifest.
+and a pending graph manifest. Text-unit IDs are valid contract evidence.
 The standard producer flow must restore and elaborate the UHDM database with
 the generated binary `.uhdm`, lint it, verify the requested top through
 `uhdm-hier --line`, and export structure through the official UHDM Python
-binding. The Spec producer uses a fixed JSON Schema and rejects output without
-exact source spans. There is no RTL text or regular-expression fallback.
+binding. The Spec producer is optional and runs only when
+`graph.spec_extraction.enabled` is true. When enabled, it uses a fixed JSON
+Schema and rejects output without exact source spans. There is no RTL text or
+regular-expression fallback.
 Architecture validation and approval require a ready canonical graph.
 
 Architecture is a human/agent-authored decision artifact. Each complete claim
-has one or more `evidence_ids` resolving to source-backed graph entities.
+has one or more `evidence_ids` resolving to source-backed graph entities or
+deterministic text units.
 Missing RTL is unresolved evidence, not
 `not_applicable`; an empty model partition continues to block approval and
 generation. Use `not_applicable` only with a reason in `summary`.

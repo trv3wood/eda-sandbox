@@ -36,8 +36,11 @@ error behavior, and observables. `channels` connect endpoints and define the
 transaction type, ordering, ownership, backpressure, and completion semantics.
 `acceptance_scenarios` provide evidence-backed Given/When/Then transaction
 tests. Each scenario has a stable `id` and non-empty `test_ids`. The Architect
-owns `contracts/testbench/testbench.yaml`, public headers, and executable C++
-black-box tests; manifest coverage and scenario `test_ids` must match exactly.
+owns `contracts/testbench/testbench.yaml`, public headers, and executable
+SystemC/TLM black-box tests. The manifest uses `schema_version: 2` and
+`kind: systemc_tlm`; every source must contain an `sc_main`, TLM initiator
+socket and binding, `tlm_generic_payload`, and `b_transport`. Manifest coverage
+and scenario `test_ids` must match exactly.
 All of these files are part of the approval hash. `rtl_traceability` is optional evidence navigation only and must not
 set TLM component boundaries.
 

@@ -189,6 +189,7 @@ def command_init(args: argparse.Namespace) -> dict:
         "backend": args.backend,
         "graph": {
             "spec_extraction": {
+                "enabled": False,
                 "provider": "openai-compatible",
                 "model": getattr(args, "spec_llm_model", None),
                 "base_url": getattr(args, "spec_llm_base_url", None),

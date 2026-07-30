@@ -29,6 +29,18 @@ CONTRACT_CATEGORIES = [
     ("observable_results", "可观察结果"),
 ]
 
+SYSTEMC_TLM_TEST_MARKERS = (
+    "#include <systemc>",
+    "sc_main(",
+    "tlm::tlm_generic_payload",
+    "b_transport(",
+    ".bind(",
+)
+SYSTEMC_TLM_INITIATOR_MARKERS = (
+    "simple_initiator_socket",
+    "tlm_initiator_socket",
+)
+
 
 def _validate_rtl_gate(paths: dict[str, Path], errors: list[str]) -> None:
     if not paths["graph_manifest"].is_file():
@@ -123,6 +135,11 @@ def validate_architecture(project_dir: Path) -> list[str]:
         for item in read_jsonl(paths["graph_entities"])
         if item.get("source_refs")
     }
+    evidence_ids.update(
+        item["id"]
+        for item in read_jsonl(paths["graph"] / "text_units.jsonl")
+        if item.get("source_path") and item.get("source_digest")
+    )
     for key, _ in CONTRACT_CATEGORIES:
         category = categories.get(key)
         if not isinstance(category, dict):
@@ -359,8 +376,10 @@ def _validate_contract_testbench(
     except (ValueError, FileNotFoundError) as exc:
         errors.append(f"contract testbench manifest is invalid: {exc}")
         return
-    if manifest.get("schema_version") != 1:
-        errors.append("contract testbench schema_version must be 1")
+    if manifest.get("schema_version") != 2:
+        errors.append("contract testbench schema_version must be 2")
+    if manifest.get("kind") != "systemc_tlm":
+        errors.append("contract testbench kind must be systemc_tlm")
     root = paths["contract_testbench"]
     headers = manifest.get("public_headers")
     if not isinstance(headers, list) or not headers:
@@ -398,6 +417,15 @@ def _validate_contract_testbench(
         source = _safe_contract_path(root, test.get("source"))
         if source is None or not source.is_file() or source.suffix not in {".cc", ".cpp", ".cxx"}:
             errors.append(f"{prefix}.source is invalid or missing")
+        elif manifest.get("kind") == "systemc_tlm":
+            source_text = source.read_text(encoding="utf-8")
+            for marker in SYSTEMC_TLM_TEST_MARKERS:
+                if marker not in source_text:
+                    errors.append(f"{prefix}.source must contain {marker!r} for SystemC/TLM")
+            if not any(marker in source_text for marker in SYSTEMC_TLM_INITIATOR_MARKERS):
+                errors.append(
+                    f"{prefix}.source must declare a TLM initiator socket for SystemC/TLM"
+                )
         timeout = test.get("timeout_seconds", 30)
         if not isinstance(timeout, int) or timeout <= 0:
             errors.append(f"{prefix}.timeout_seconds must be a positive integer")
@@ -436,6 +464,30 @@ def _contract_testbench_payload(project_dir: Path) -> dict[str, Any]:
     }
 
 
+def _resolve_graph_input(project_dir: Path, recorded_path: str) -> Path:
+    """Resolve an input recorded on the host when validating in a container.
+
+    Graph manifests deliberately retain their original path strings for
+    traceability.  The agent container mounts the work root at ``/workspace``,
+    however, so a host absolute path below ``sources`` is not directly
+    readable there.  Rebase only that suffix onto the project's work root;
+    the recorded string is retained in the approval payload and therefore the
+    approval hash is portable across the two environments.
+    """
+    path = Path(recorded_path)
+    if not path.is_absolute():
+        return project_dir / path
+    if path.is_file():
+        return path
+    parts = path.parts
+    try:
+        sources_index = parts.index("sources")
+    except ValueError:
+        return path
+    work_root = project_dir.parent.parent
+    return work_root.joinpath(*parts[sources_index:])
+
+
 def approval_payload(project_dir: Path) -> dict[str, Any]:
     """Return all artifacts whose semantic change must invalidate approval."""
     paths = project_paths(project_dir)
@@ -445,8 +497,7 @@ def approval_payload(project_dir: Path) -> dict[str, Any]:
     graph_manifest = load_json(paths["graph_manifest"])
     current_inputs = []
     for item in graph_manifest.get("inputs", []):
-        path = Path(item["path"])
-        resolved = path if path.is_absolute() else project_dir / path
+        resolved = _resolve_graph_input(project_dir, item["path"])
         if not resolved.is_file():
             raise ValueError(f"graph input is missing: {item['path']}")
         current_inputs.append({

@@ -95,15 +95,19 @@ UHDM 角色镜像产生结构结果：
 
 ```bash
 scripts/systemc-tlm-agent extract PROJECT --skip-tools
+# 可选：仅当 graph.spec_extraction.enabled: true
 scripts/eda-run --work WORK agent eda-spec-produce /workspace/PROJECT
 scripts/eda-run --work WORK uhdm eda-uhdm-produce /workspace/PROJECT
 scripts/eda-run --work WORK agent \
   systemc-tlm-agent tools finalize /workspace/PROJECT
 ```
 
-`--skip-tools` 只产生 pending graph。CLI 校验 Spec source span、top、
+默认关闭语义 Spec 抽取，document tree 产生的稳定 `txt-*` text-unit ID 可直接作为
+合同证据；需要语义实体与关系时，再设置 `graph.spec_extraction.enabled: true`。
+`--skip-tools` 会让必需的 RTL producer 保持 pending。CLI 校验 top、
 数据库/结构摘要、producer 输入摘要和图引用完整性全部通过，且 `tools finalize` 发布
-`status: ready` 后，architecture 才能批准。任一步失败都会保留失败状态并阻断审批。
+`status: ready` 后，architecture 才能批准。启用 Spec producer 后，其 source span
+校验也必须通过；任一必需或已启用步骤失败都会保留失败状态并阻断审批。
 
 UHDM Python 脚本输出仅用于探索和定位；合同只能引用 canonical graph 中带
 source span 的实体。
@@ -122,11 +126,13 @@ source span 的实体。
 - `acceptance_scenarios`：带稳定 `id`、evidence ID 和 `test_ids` 的 Given/When/Then
   事务级验收场景。
 
-Architect 还必须在 `contracts/testbench/` 提交可执行的 C++ 黑盒测试：
+Architect 还必须在 `contracts/testbench/` 提交可执行的 SystemC/TLM 黑盒测试：
 
-- `testbench.yaml` 声明 Architect 所有的公共头文件、测试源码、超时和场景覆盖关系；
+- `testbench.yaml` 使用 `schema_version: 2` 和 `kind: systemc_tlm`，并声明
+  Architect 所有的公共头文件、测试源码、超时和场景覆盖关系；
 - `include/` 固化事务类型、寄存器/API 常量和可观察结果；
-- `tests/` 只通过批准的事务接口驱动模型，不依赖 RTL 私有状态。
+- `tests/` 必须含 `sc_main`、TLM initiator socket/绑定、`tlm_generic_payload` 和
+  `b_transport`，只通过批准的事务接口驱动模型，不依赖 RTL 私有状态。
 
 validator 会双向检查 scenario 与 test 的覆盖，批准哈希包含测试目录下每个文件。
 因此 Implementer 不能修改测试来迁就实现；合同或测试变化都必须重新人工批准。

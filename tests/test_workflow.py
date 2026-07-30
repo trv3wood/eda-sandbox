@@ -7,7 +7,7 @@ from pathlib import Path
 from tlm_agent.cli import command_init
 from tlm_agent.extractors import extract_project
 from tlm_agent.graph.finalize import finalize_graph
-from tlm_agent.graph.schema import entity, relationship, write_jsonl
+from tlm_agent.graph.schema import entity, read_jsonl, relationship, write_jsonl
 from tlm_agent.generator import generate_model
 from tlm_agent.io import (
     dump_yaml,
@@ -50,6 +50,7 @@ class WorkflowTest(unittest.TestCase):
             command_init(args)
 
             config = load_yaml(project / "manifest.yaml")["graph"]["spec_extraction"]
+            self.assertFalse(config["enabled"])
             self.assertEqual(config["provider"], "openai-compatible")
             self.assertEqual(config["model"], "test-model")
             self.assertEqual(config["base_url"], "http://example.invalid/v1")
@@ -57,6 +58,106 @@ class WorkflowTest(unittest.TestCase):
             self.assertEqual(config["api_key_env"], "TEST_LLM_API_KEY")
             self.assertEqual(config["batch_max_chars"], 24000)
             self.assertEqual(config["response_format"], "json_object")
+
+    def test_semantic_spec_extraction_is_optional_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            (project / "spec.md").write_text(
+                "# DMA\n\nDMA transfers bytes.\n", encoding="utf-8"
+            )
+            args = Args()
+            args.project = str(project)
+            args.name = "functional-first-ip"
+            args.top = "functional_first_ip"
+            args.docx = ["spec.md"]
+            args.rtl = []
+            command_init(args)
+
+            summary = extract_project(project)
+            graph = load_json(project_paths(project)["graph_manifest"])
+
+            self.assertEqual(summary["graph_status"], "ready")
+            self.assertEqual(graph["producers"]["spec"]["status"], "skipped")
+            self.assertEqual(
+                graph["producers"]["spec"]["reason"],
+                "semantic extraction disabled",
+            )
+
+            create_architecture_draft(project)
+            text_unit_id = read_jsonl(
+                project_paths(project)["graph"] / "text_units.jsonl"
+            )[0]["id"]
+            architecture = load_yaml(project_paths(project)["contracts"])
+            architecture["categories"]["functional_intent"].update({
+                "status": "complete",
+                "items": [{
+                    "statement": "DMA transfers bytes.",
+                    "evidence_ids": [text_unit_id],
+                }],
+            })
+            dump_yaml(project_paths(project)["contracts"], architecture)
+            errors = validate_architecture(project)
+            self.assertFalse(
+                any(
+                    f"unknown evidence ID {text_unit_id}" in error
+                    for error in errors
+                )
+            )
+
+    def test_approval_input_path_rebases_sources_in_container(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            work_root = Path(temporary) / "workspace"
+            source = work_root / "sources" / "ip" / "spec.md"
+            source.parent.mkdir(parents=True)
+            source.write_text("portable input\n", encoding="utf-8")
+            project = work_root / "projects" / "ip-tlm"
+            project.mkdir(parents=True)
+
+            args = Args()
+            args.project = str(project)
+            args.name = "portable-ip"
+            args.top = "portable_ip"
+            args.docx = [str(source)]
+            args.rtl = []
+            command_init(args)
+            extract_project(project)
+            create_architecture_draft(project)
+
+            paths = project_paths(project)
+            graph_manifest = load_json(paths["graph_manifest"])
+            graph_manifest["inputs"][0]["path"] = (
+                "/host/workspace/sources/ip/spec.md"
+            )
+            from tlm_agent.io import dump_json
+            dump_json(paths["graph_manifest"], graph_manifest)
+
+            payload = approval_payload(project)
+            self.assertEqual(
+                payload["current_inputs"][0]["sha256"], file_digest(source)
+            )
+
+    def test_semantic_spec_extraction_can_be_enabled(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            (project / "spec.md").write_text(
+                "# DMA\n\nDMA transfers bytes.\n", encoding="utf-8"
+            )
+            args = Args()
+            args.project = str(project)
+            args.name = "audited-ip"
+            args.top = "audited_ip"
+            args.docx = ["spec.md"]
+            args.rtl = []
+            command_init(args)
+            manifest = load_yaml(project / "manifest.yaml")
+            manifest["graph"]["spec_extraction"]["enabled"] = True
+            dump_yaml(project / "manifest.yaml", manifest)
+
+            extract_project(project, run_tools=False)
+            graph = load_json(project_paths(project)["graph_manifest"])
+
+            self.assertEqual(graph["status"], "pending")
+            self.assertEqual(graph["producers"]["spec"]["status"], "pending")
 
     @staticmethod
     def _publish_uhdm_fixture(project: Path, module_name: str) -> str:
@@ -148,13 +249,46 @@ class WorkflowTest(unittest.TestCase):
             encoding="utf-8",
         )
         (root / "tests" / "packet_contract.cpp").write_text(
-            "#include \"packet_contract.hpp\"\nint main() { return PacketContract{1}.length == 1 ? 0 : 1; }\n",
+            """#include \"packet_contract.hpp\"
+#include <systemc>
+#include <tlm>
+#include <tlm_utils/simple_initiator_socket.h>
+#include <tlm_utils/simple_target_socket.h>
+
+struct TestInitiator : sc_core::sc_module {
+    tlm_utils::simple_initiator_socket<TestInitiator> socket;
+    explicit TestInitiator(sc_core::sc_module_name name)
+        : sc_core::sc_module(name), socket(\"socket\") {}
+};
+
+struct TestTarget : sc_core::sc_module {
+    tlm_utils::simple_target_socket<TestTarget> socket;
+    explicit TestTarget(sc_core::sc_module_name name)
+        : sc_core::sc_module(name), socket(\"socket\") {
+        socket.register_b_transport(this, &TestTarget::b_transport);
+    }
+    void b_transport(tlm::tlm_generic_payload& payload, sc_core::sc_time&) {
+        payload.set_response_status(tlm::TLM_OK_RESPONSE);
+    }
+};
+
+int sc_main(int, char**) {
+    TestInitiator initiator(\"initiator\");
+    TestTarget target(\"target\");
+    tlm::tlm_generic_payload payload;
+    sc_core::sc_time delay = sc_core::SC_ZERO_TIME;
+    initiator.socket.bind(target.socket);
+    initiator.socket->b_transport(payload, delay);
+    return PacketContract{1}.length == 1 ? 0 : 1;
+}
+""",
             encoding="utf-8",
         )
         dump_yaml(
             root / "testbench.yaml",
             {
-                "schema_version": 1,
+                "schema_version": 2,
+                "kind": "systemc_tlm",
                 "public_headers": ["include/packet_contract.hpp"],
                 "tests": [{
                     "id": test_id,
@@ -267,6 +401,15 @@ class WorkflowTest(unittest.TestCase):
             self._complete_handoff(architecture, evidence_id)
             self._write_contract_testbench(project, "valid_packet", "packet_contract")
             dump_yaml(paths["contracts"], architecture)
+            self.assertEqual(validate_architecture(project), [])
+
+            # A plain C++ unit test cannot satisfy a SystemC/TLM contract.
+            test_source = paths["contract_testbench"] / "tests" / "packet_contract.cpp"
+            systemc_source = test_source.read_text(encoding="utf-8")
+            test_source.write_text("int main() { return 0; }\n", encoding="utf-8")
+            errors = validate_architecture(project)
+            self.assertTrue(any("SystemC/TLM" in error for error in errors))
+            test_source.write_text(systemc_source, encoding="utf-8")
             self.assertEqual(validate_architecture(project), [])
 
             approve(project, approver="unit-test")

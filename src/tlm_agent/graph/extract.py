@@ -20,7 +20,7 @@ from .schema import (
 )
 from ..io import dump_json, file_digest, load_json, load_yaml, relative_to_project
 
-SPEC_PROMPT_VERSION = "systemc-tlm-spec-graph/1"
+SPEC_PROMPT_VERSION = "systemc-tlm-spec-graph/2"
 
 
 def _source_ref(
@@ -268,11 +268,10 @@ def spec_response_schema() -> dict[str, Any]:
     source_span = {
         "type": "object",
         "additionalProperties": False,
-        "required": ["text_unit_id", "start", "end"],
+        "required": ["text_unit_id", "evidence_quote"],
         "properties": {
             "text_unit_id": {"type": "string"},
-            "start": {"type": "integer", "minimum": 0},
-            "end": {"type": "integer", "minimum": 1},
+            "evidence_quote": {"type": "string", "minLength": 1},
         },
     }
     return {
@@ -350,9 +349,18 @@ def normalize_spec_response(
             unit = units.get(span["text_unit_id"])
             if unit is None:
                 raise ValueError(f"unknown text unit {span['text_unit_id']}")
-            start, end = span["start"], span["end"]
-            if not (0 <= start < end <= len(unit["text"])):
-                raise ValueError(f"invalid source span for {unit['id']}")
+            quote = span["evidence_quote"]
+            starts = []
+            offset = unit["text"].find(quote)
+            while offset >= 0:
+                starts.append(offset)
+                offset = unit["text"].find(quote, offset + 1)
+            if not starts:
+                raise ValueError(f"evidence quote is not in {unit['id']}")
+            if len(starts) != 1:
+                raise ValueError(f"evidence quote is ambiguous in {unit['id']}")
+            start = starts[0]
+            end = start + len(quote)
             result.append(
                 {
                     "text_unit_id": unit["id"],
@@ -453,6 +461,7 @@ def produce_spec_graph(project: Path) -> dict[str, Any]:
     input_digest = canonical_digest(text_units)
     cache = project / ".systemc-agent" / "tools" / "spec-llm-cache"
     cache.mkdir(parents=True, exist_ok=True)
+    failures = project / ".systemc-agent" / "tools" / "spec-llm-failures"
     maximum = int(config.get("batch_max_chars", 24000))
     if maximum < 1000:
         raise ValueError("graph.spec_extraction.batch_max_chars must be >= 1000")
@@ -509,58 +518,100 @@ def produce_spec_graph(project: Path) -> dict[str, Any]:
                 flush=True,
             )
             cached = load_json(cache_path)
-        else:
-            print(
-                f"Spec graph: batch {batch_number}/{len(batches)} requesting "
-                f"({len(batch)} unit(s), {batch_characters} character(s))",
-                file=sys.stderr,
-                flush=True,
+            response_digest = canonical_digest(cached["response"])
+            batch_entities, batch_relationships = normalize_spec_response(
+                cached["response"],
+                batch,
+                model=cached.get("model", model),
+                response_digest=response_digest,
+                system_fingerprint=cached.get("system_fingerprint"),
             )
+        else:
             if client is None:
                 client = OpenAI(base_url=base_url, api_key=api_key)
-            completion = client.chat.completions.create(
-                model=model,
-                temperature=0,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "Extract only source-grounded hardware specification "
-                            "entities and relationships. Every item must cite exact "
-                            "character spans. Return one JSON object that validates "
-                            "against this JSON Schema: "
-                            + json.dumps(spec_response_schema(), sort_keys=True)
-                        ),
-                    },
-                    {
-                        "role": "user",
-                        "content": json.dumps(batch, ensure_ascii=False),
-                    },
-                ],
-                response_format=api_response_format,
-            )
-            content = completion.choices[0].message.content or "{}"
-            cached = {
-                "response": json.loads(content),
-                "model": completion.model,
-                "system_fingerprint": getattr(
-                    completion, "system_fingerprint", None
-                ),
-            }
-            dump_json(cache_path, cached)
-            print(
-                f"Spec graph: batch {batch_number}/{len(batches)} completed",
-                file=sys.stderr,
-                flush=True,
-            )
-        response_digest = canonical_digest(cached["response"])
-        batch_entities, batch_relationships = normalize_spec_response(
-            cached["response"],
-            batch,
-            model=cached.get("model", model),
-            response_digest=response_digest,
-            system_fingerprint=cached.get("system_fingerprint"),
-        )
+            diagnostics = []
+            for attempt in range(3):
+                action = "requesting" if attempt == 0 else "repairing"
+                print(
+                    f"Spec graph: batch {batch_number}/{len(batches)} {action} "
+                    f"attempt {attempt + 1}/3 ({len(batch)} unit(s), "
+                    f"{batch_characters} character(s))",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                repair = ""
+                if diagnostics:
+                    repair = (
+                        " The previous response was rejected: "
+                        f"{diagnostics[-1]['error']}. Correct it without changing "
+                        "the input evidence."
+                    )
+                completion = client.chat.completions.create(
+                    model=model,
+                    temperature=0,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": (
+                                "Extract only source-grounded hardware specification "
+                                "entities and relationships. Every item must cite a "
+                                "non-empty evidence_quote copied exactly from its text "
+                                "unit; do not calculate character offsets. Return one "
+                                "JSON object that validates against this JSON Schema: "
+                                + json.dumps(spec_response_schema(), sort_keys=True)
+                                + repair
+                            ),
+                        },
+                        {
+                            "role": "user",
+                            "content": json.dumps(batch, ensure_ascii=False),
+                        },
+                    ],
+                    response_format=api_response_format,
+                )
+                content = completion.choices[0].message.content or "{}"
+                candidate = {
+                    "response": json.loads(content),
+                    "model": completion.model,
+                    "system_fingerprint": getattr(
+                        completion, "system_fingerprint", None
+                    ),
+                }
+                response_digest = canonical_digest(candidate["response"])
+                try:
+                    batch_entities, batch_relationships = normalize_spec_response(
+                        candidate["response"],
+                        batch,
+                        model=candidate.get("model", model),
+                        response_digest=response_digest,
+                        system_fingerprint=candidate.get("system_fingerprint"),
+                    )
+                except Exception as exc:
+                    diagnostics.append({
+                        "attempt": attempt + 1,
+                        "error": str(exc),
+                        "response": candidate["response"],
+                    })
+                    continue
+                cached = candidate
+                dump_json(cache_path, cached)
+                print(
+                    f"Spec graph: batch {batch_number}/{len(batches)} completed "
+                    f"on attempt {attempt + 1}/3",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                break
+            else:
+                failures.mkdir(parents=True, exist_ok=True)
+                dump_json(failures / f"{cache_key}.json", {
+                    "batch": batch,
+                    "diagnostics": diagnostics,
+                })
+                raise ValueError(
+                    f"Spec graph batch {batch_number}/{len(batches)} failed after "
+                    "three attempts; see spec-llm-failures for diagnostics"
+                )
         entities.extend(batch_entities)
         relationships.extend(batch_relationships)
         response_digests.append(response_digest)

@@ -19,6 +19,15 @@ def extract_project(project_dir: Path, *, run_tools: bool = True) -> dict[str, A
     """Extract deterministic document units and initialize the canonical graph."""
     paths = project_paths(project_dir)
     manifest = load_yaml(paths["manifest"])
+    graph_config = manifest.get("graph", {})
+    if not isinstance(graph_config, dict):
+        raise ValueError("manifest graph must be a mapping")
+    spec_config = graph_config.get("spec_extraction", {})
+    if not isinstance(spec_config, dict):
+        raise ValueError("manifest graph.spec_extraction must be a mapping")
+    spec_enabled = spec_config.get("enabled", False)
+    if not isinstance(spec_enabled, bool):
+        raise ValueError("manifest graph.spec_extraction.enabled must be boolean")
     document_paths = resolve_inputs(project_dir, manifest.get("documents", []))
     register_paths = resolve_inputs(project_dir, manifest.get("registers", []))
     rtl_files = resolve_inputs(
@@ -114,8 +123,16 @@ def extract_project(project_dir: Path, *, run_tools: bool = True) -> dict[str, A
                 "text_unit_count": len(text_units),
             },
             "spec": {
-                "status": "pending" if text_units else "skipped",
-                "reason": None if text_units else "no document text units",
+                "status": "pending" if text_units and spec_enabled else "skipped",
+                "reason": (
+                    None
+                    if text_units and spec_enabled
+                    else (
+                        "semantic extraction disabled"
+                        if text_units
+                        else "no document text units"
+                    )
+                ),
             },
             "rtl": {
                 "status": "pending" if rtl_files else "skipped",
@@ -142,7 +159,7 @@ def extract_project(project_dir: Path, *, run_tools: bool = True) -> dict[str, A
         from .graph.extract import produce_spec_graph
         from .tool_producers import finalize_tools, produce_uhdm
 
-        if text_units:
+        if text_units and spec_enabled:
             produce_spec_graph(project_dir)
         produce_uhdm(project_dir)
         finalize_tools(project_dir)
@@ -153,7 +170,7 @@ def extract_project(project_dir: Path, *, run_tools: bool = True) -> dict[str, A
         from .graph.extract import produce_spec_graph
         from .graph.finalize import finalize_graph
 
-        if text_units:
+        if text_units and spec_enabled:
             produce_spec_graph(project_dir)
         finalize_graph(project_dir, structure=None, sources=[])
         summary["graph_status"] = "ready"
