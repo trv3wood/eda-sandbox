@@ -41,7 +41,18 @@ jobs:
           platforms: linux/amd64
           cache-from: type=gha,scope=rocky8-scc-deps
           cache-to: type=gha,mode=max,scope=rocky8-scc-deps
-      - name: Warm SCC SDK compile cache
+      - name: Warm SCC compile cache
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.rocky8
+          target: scc-compile
+          platforms: linux/amd64
+          cache-from: |
+            type=gha,scope=rocky8-scc-deps
+            type=gha,scope=rocky8-scc-compile
+          cache-to: type=gha,mode=max,scope=rocky8-scc-compile
+      - name: Warm SCC SDK assembly cache
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -50,6 +61,7 @@ jobs:
           platforms: linux/amd64
           cache-from: |
             type=gha,scope=rocky8-scc-deps
+            type=gha,scope=rocky8-scc-compile
             type=gha,scope=rocky8-scc-sdk
           cache-to: type=gha,mode=max,scope=rocky8-scc-sdk
       - uses: docker/build-push-action@v6
@@ -63,6 +75,7 @@ jobs:
           load: true
           cache-from: |
             type=gha,scope=rocky8-scc-deps
+            type=gha,scope=rocky8-scc-compile
             type=gha,scope=rocky8-scc-sdk
             type=gha,scope=rocky8-scc-runtime
           cache-to: type=gha,mode=max,scope=rocky8-scc-runtime

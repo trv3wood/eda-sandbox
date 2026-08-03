@@ -13,6 +13,7 @@ RUN dnf -y install \
         curl \
         diffutils \
         file \
+        findutils \
         gcc \
         gcc-c++ \
         git \
