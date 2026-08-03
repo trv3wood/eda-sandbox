@@ -103,7 +103,8 @@ def verify_project(project_dir: Path, *, backend: str = "auto") -> dict[str, Any
     ]
     if shutil.which("ninja"):
         configure_command.extend(["-G", "Ninja"])
-    configure_command.append("-DCMAKE_BUILD_TYPE=RelWithDebInfo")
+    # 离线 SDK 内的 Conan 依赖按 Release 配置归档。
+    configure_command.append("-DCMAKE_BUILD_TYPE=Release")
     configure = _execute(configure_command, project_dir)
     build = (
         _execute(["cmake", "--build", str(build_dir), "--parallel"], project_dir)
