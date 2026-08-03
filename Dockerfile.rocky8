@@ -37,6 +37,10 @@ RUN micromamba create --yes --prefix /opt/conda/envs/build \
     /opt/conda/envs/build/bin/python -m pip install --no-cache-dir conan && \
     micromamba clean --all --yes
 
+# micromamba 已安装 Ninja；将其加入 PATH 供 CMake 的 Ninja generator 查找。
+ENV PATH=/opt/conda/envs/build/bin:${PATH}
+RUN test -x /opt/conda/envs/build/bin/ninja
+
 RUN git clone --depth 1 --recurse-submodules --shallow-submodules \
         --branch "${SCC_VERSION}" \
         https://github.com/Minres/SystemC-Components.git /tmp/scc-src
