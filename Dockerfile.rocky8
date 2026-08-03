@@ -72,21 +72,42 @@ RUN set -eu; \
     for package_root in /tmp/scc-conan/full_deploy/host/*/*/*/*; do \
         test -d "${package_root}"; \
         package_count=$((package_count + 1)); \
+        printf 'Conan deploy root: %s\n' "${package_root}"; \
         cp -a "${package_root}/." /opt/eda-scc-sdk/deps/; \
     done; \
+    printf 'Conan deploy roots copied: %s\n' "${package_count}"; \
     test "${package_count}" -gt 0
 RUN set -eu; \
     systemc_config="$(find /root/.conan2/p -type f \
         -path '*/build/Release/SystemCLanguageConfig.cmake' -print -quit)"; \
+    printf 'SystemC build config: %s\n' "${systemc_config}"; \
     test -n "${systemc_config}"; \
     systemc_build_dir="$(dirname "${systemc_config}")"; \
+    printf 'SystemC install manifest: %s\n' "${systemc_build_dir}/cmake_install.cmake"; \
     test -f "${systemc_build_dir}/cmake_install.cmake"; \
     /opt/conda/envs/build/bin/cmake --install "${systemc_build_dir}" \
         --prefix /opt/eda-scc-sdk/deps
-RUN test -n "$(find /opt/eda-scc-sdk/deps -type f \
-    -path '*/cmake/SystemCLanguage/SystemCLanguageConfig.cmake' -print -quit)" && \
-    test -n "$(find /opt/eda-scc-sdk/scc -type f \
-    -path '*/cmake/scc/sccConfig.cmake' -print -quit)"
+# 输出配置清单，避免只凭包名猜测 Conan/CMake 的实际布局。
+RUN set -eu; \
+    printf '%s\n' '--- SDK CMake manifests ---'; \
+    find /opt/eda-scc-sdk -type f \( \
+        -name '*Config.cmake' -o -name '*-config.cmake' -o -name '*Targets*.cmake' \
+    \) -print | sort; \
+    printf '%s\n' '--- SDK shared/static libraries ---'; \
+    find /opt/eda-scc-sdk -type f \( \
+        -name '*.so' -o -name '*.so.*' -o -name '*.a' \
+    \) -print | sort
+RUN set -eu; \
+    systemc_config="$(find /opt/eda-scc-sdk/deps -type f \
+        -path '*/cmake/SystemCLanguage/SystemCLanguageConfig.cmake' -print -quit)"; \
+    scc_config="$(find /opt/eda-scc-sdk/scc -type f \( \
+        -path '*/cmake/scc/scc-config.cmake' -o \
+        -path '*/cmake/scc/sccConfig.cmake' \
+    \) -print -quit)"; \
+    printf 'Selected SystemC CMake config: %s\n' "${systemc_config}"; \
+    printf 'Selected SCC CMake config: %s\n' "${scc_config}"; \
+    test -n "${systemc_config}"; \
+    test -n "${scc_config}"
 RUN printf '%s\n' \
         '#!/usr/bin/env bash' \
         'set -Eeuo pipefail' \
