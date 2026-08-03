@@ -11,6 +11,8 @@ RUN dnf -y install \
         ca-certificates \
         cmake \
         curl \
+        diffutils \
+        file \
         gcc \
         gcc-c++ \
         git \
@@ -44,7 +46,7 @@ RUN cd /tmp/scc-src && \
         --output-folder=/tmp/scc-conan \
         --deployer=full_deploy \
         --build=missing \
-        --build=b2 \
+        --build='b2/*' \
         -s build_type=Release
 
 FROM scc-deps AS scc-compile
