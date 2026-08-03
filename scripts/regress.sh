@@ -182,7 +182,11 @@ case "${profile}" in
       '#include <scc/report.h>' \
       'int sc_main(int, char**) { return 0; }' \
       >"${probe_dir}/main.cpp"
-    cmake_args=(-S "${probe_dir}" -B "${probe_dir}/build")
+    # Conan 的 CMakeDeps 生成器按 Release 配置随 SDK 一同归档；
+    # 不设置构建类型会在 find_package(SystemCLanguage) 阶段直接失败。
+    scc_build_type="${EDA_SCC_BUILD_TYPE:-Release}"
+    printf '  SCC dependency build type: %s\n' "${scc_build_type}"
+    cmake_args=(-S "${probe_dir}" -B "${probe_dir}/build" "-DCMAKE_BUILD_TYPE=${scc_build_type}")
     if command -v ninja >/dev/null 2>&1; then
       cmake_args+=(-G Ninja)
     fi

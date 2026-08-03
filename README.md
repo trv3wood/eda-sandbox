@@ -102,7 +102,7 @@ uv run systemc-tlm-package workspace/projects/PROJECT \
 sha256sum -c eda-scc-rocky8-sdk.sha256
 tar -xzf eda-scc-rocky8-sdk.tar.gz -C "$HOME/opt"
 source "$HOME/opt/eda-scc-sdk/activate.sh"
-cmake -S model -B model/build -DCMAKE_BUILD_TYPE=RelWithDebInfo
+cmake -S model -B model/build -DCMAKE_BUILD_TYPE=Release
 cmake --build model/build --parallel
 ctest --test-dir model/build --output-on-failure
 ```
