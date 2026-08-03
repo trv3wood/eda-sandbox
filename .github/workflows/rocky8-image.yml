@@ -41,7 +41,18 @@ jobs:
           platforms: linux/amd64
           cache-from: type=gha,scope=rocky8-scc-deps
           cache-to: type=gha,mode=max,scope=rocky8-scc-deps
-      - name: Warm SCC compile cache
+      - name: Warm SCC CMake configuration cache
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.rocky8
+          target: scc-configure
+          platforms: linux/amd64
+          cache-from: |
+            type=gha,scope=rocky8-scc-deps
+            type=gha,scope=rocky8-scc-configure
+          cache-to: type=gha,mode=max,scope=rocky8-scc-configure
+      - name: Warm SCC compile and install cache
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -50,6 +61,7 @@ jobs:
           platforms: linux/amd64
           cache-from: |
             type=gha,scope=rocky8-scc-deps
+            type=gha,scope=rocky8-scc-configure
             type=gha,scope=rocky8-scc-compile
           cache-to: type=gha,mode=max,scope=rocky8-scc-compile
       - name: Warm SCC SDK assembly cache
@@ -61,6 +73,7 @@ jobs:
           platforms: linux/amd64
           cache-from: |
             type=gha,scope=rocky8-scc-deps
+            type=gha,scope=rocky8-scc-configure
             type=gha,scope=rocky8-scc-compile
             type=gha,scope=rocky8-scc-sdk
           cache-to: type=gha,mode=max,scope=rocky8-scc-sdk
@@ -75,6 +88,7 @@ jobs:
           load: true
           cache-from: |
             type=gha,scope=rocky8-scc-deps
+            type=gha,scope=rocky8-scc-configure
             type=gha,scope=rocky8-scc-compile
             type=gha,scope=rocky8-scc-sdk
             type=gha,scope=rocky8-scc-runtime
@@ -85,7 +99,7 @@ jobs:
             mkdir -p /tmp/ftp-user/.local
             mv /opt/eda-scc-sdk /tmp/ftp-user/.local/eda-scc-sdk
             source /tmp/ftp-user/.local/eda-scc-sdk/activate.sh
-            export EDA_SCC_CMAKE_DEBUG=1
+            export EDA_SCC_CMAKE_DEBUG_PACKAGES=Boost
             /opt/eda-sandbox/scripts/regress.sh scc
           '
       - name: Export FTP SDK
