@@ -129,7 +129,7 @@ case "${profile}" in
     )
     ;;
   scc)
-    require_tools cmake c++
+    require_tools cmake c++ find
     scc_home="${EDA_SCC_HOME:-/opt/scc}"
     if [[ -d "${scc_home}/scc" ]]; then
       scc_prefix="${scc_home}/scc"
@@ -139,8 +139,16 @@ case "${profile}" in
       scc_deps="${EDA_SCC_DEPS:-/opt/scc-deps}"
     fi
     test -d "${scc_prefix}/include"
-    test -n "$(find "${scc_deps}" -type f \
+    systemc_config="$(find "${scc_deps}" -type f \
       -path '*/cmake/SystemCLanguage/SystemCLanguageConfig.cmake' -print -quit)"
+    scc_config="$(find "${scc_prefix}" -type f \( \
+      -path '*/cmake/scc/scc-config.cmake' -o \
+      -path '*/cmake/scc/sccConfig.cmake' \
+    \) -print -quit)"
+    printf '  SystemC CMake: %s\n' "${systemc_config}"
+    printf '  SCC CMake:     %s\n' "${scc_config}"
+    test -n "${systemc_config}"
+    test -n "${scc_config}"
     printf '  CMake:   %s\n' "$(cmake --version | head -n 1)"
     if command -v ninja >/dev/null 2>&1; then
       printf '  Ninja:   %s\n' "$(ninja --version)"
@@ -148,6 +156,10 @@ case "${profile}" in
       printf '  Ninja:   unavailable; using CMake default generator\n'
     fi
     printf '  SCC:     %s\n' "${scc_prefix}"
+    printf '  CMAKE_PREFIX_PATH: %s\n' "${CMAKE_PREFIX_PATH:-<unset>}"
+    printf '  LD_LIBRARY_PATH:   %s\n' "${LD_LIBRARY_PATH:-<unset>}"
+    printf '%s\n' '  SCC shared libraries:'
+    find "${scc_prefix}" -type f \( -name '*.so' -o -name '*.so.*' \) -print | sort
     probe_dir="$(mktemp -d)"
     trap 'rm -rf "${probe_dir}"' EXIT
     printf '%s\n' \
@@ -174,8 +186,16 @@ case "${profile}" in
     if command -v ninja >/dev/null 2>&1; then
       cmake_args+=(-G Ninja)
     fi
-    cmake "${cmake_args[@]}" >/dev/null
-    cmake --build "${probe_dir}/build" >/dev/null
+    if [[ "${EDA_SCC_CMAKE_DEBUG:-0}" == "1" ]]; then
+      printf '%s\n' '  CMake find debug: enabled'
+      cmake_args+=(-DCMAKE_FIND_DEBUG_MODE=ON)
+    fi
+    printf '  Configure command: cmake'
+    printf ' %q' "${cmake_args[@]}"
+    printf '\n'
+    cmake "${cmake_args[@]}"
+    printf '  Build command: cmake --build %q --parallel\n' "${probe_dir}/build"
+    cmake --build "${probe_dir}/build" --parallel
     ;;
   systemc)
     require_tools cmake c++

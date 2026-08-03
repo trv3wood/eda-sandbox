@@ -85,6 +85,7 @@ jobs:
             mkdir -p /tmp/ftp-user/.local
             mv /opt/eda-scc-sdk /tmp/ftp-user/.local/eda-scc-sdk
             source /tmp/ftp-user/.local/eda-scc-sdk/activate.sh
+            export EDA_SCC_CMAKE_DEBUG=1
             /opt/eda-sandbox/scripts/regress.sh scc
           '
       - name: Export FTP SDK
