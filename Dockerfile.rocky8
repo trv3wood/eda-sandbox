@@ -54,13 +54,20 @@ RUN cd /tmp/scc-src && \
         --build='b2/*' \
         -s build_type=Release
 
-FROM scc-deps AS scc-compile
+FROM scc-deps AS scc-configure
 
 RUN cd /tmp/scc-src && \
     /opt/conda/envs/build/bin/cmake -S . -B /tmp/scc-build -G Ninja \
         -DCMAKE_TOOLCHAIN_FILE=/tmp/scc-conan/build/Release/generators/conan_toolchain.cmake \
-        -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/eda-scc-sdk/scc && \
-    /opt/conda/envs/build/bin/cmake --build /tmp/scc-build --parallel && \
+        -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/eda-scc-sdk/scc
+
+FROM scc-configure AS scc-build
+
+RUN /opt/conda/envs/build/bin/cmake --build /tmp/scc-build --parallel
+
+FROM scc-build AS scc-compile
+
+RUN \
     /opt/conda/envs/build/bin/cmake --install /tmp/scc-build
 
 FROM scc-compile AS scc-sdk

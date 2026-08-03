@@ -158,10 +158,58 @@ case "${profile}" in
     printf '  SCC:     %s\n' "${scc_prefix}"
     printf '  CMAKE_PREFIX_PATH: %s\n' "${CMAKE_PREFIX_PATH:-<unset>}"
     printf '  LD_LIBRARY_PATH:   %s\n' "${LD_LIBRARY_PATH:-<unset>}"
+    printf '%s\n' '  Boost CMake generator files:'
+    find "${scc_deps}/build/Release/generators" -maxdepth 1 -type f \
+      -iname 'boost*.cmake' -print | sort
+    printf '%s\n' '  Boost date_time/filesystem libraries:'
+    find "${scc_deps}" -type f \( \
+      -name 'libboost_date_time.*' -o -name 'libboost_filesystem.*' \
+    \) -print | sort
     printf '%s\n' '  SCC shared libraries:'
     find "${scc_prefix}" -type f \( -name '*.so' -o -name '*.so.*' \) -print | sort
-    probe_dir="$(mktemp -d)"
-    trap 'rm -rf "${probe_dir}"' EXIT
+    probe_root="$(mktemp -d)"
+    trap 'rm -rf "${probe_root}"' EXIT
+    boost_probe_dir="${probe_root}/01-boost-components"
+    scc_probe_dir="${probe_root}/02-scc-package"
+    mkdir -p "${boost_probe_dir}" "${scc_probe_dir}"
+    # Conan 的 CMakeDeps 生成器按 Release 配置随 SDK 一同归档；
+    # 不设置构建类型会在 find_package(SystemCLanguage) 阶段直接失败。
+    scc_build_type="${EDA_SCC_BUILD_TYPE:-Release}"
+    printf '  SCC dependency build type: %s\n' "${scc_build_type}"
+    cmake_debug_args=()
+    if [[ -n "${EDA_SCC_CMAKE_DEBUG_PACKAGES:-}" ]]; then
+      printf '  CMake find debug packages: %s\n' "${EDA_SCC_CMAKE_DEBUG_PACKAGES}"
+      cmake_debug_args+=("--debug-find-pkg=${EDA_SCC_CMAKE_DEBUG_PACKAGES}")
+    elif [[ "${EDA_SCC_CMAKE_DEBUG:-0}" == "1" ]]; then
+      printf '%s\n' '  CMake find debug: all packages (legacy switch)'
+      cmake_debug_args+=(-DCMAKE_FIND_DEBUG_MODE=ON)
+    fi
+    cmake_generator_args=()
+    if command -v ninja >/dev/null 2>&1; then
+      cmake_generator_args=(-G Ninja)
+    fi
+    printf '%s\n' '  === Phase 1/3: verify Boost date_time and filesystem ==='
+    printf '%s\n' \
+      'cmake_minimum_required(VERSION 3.20)' \
+      'project(scc_boost_probe LANGUAGES CXX)' \
+      'find_package(Boost 1.70 REQUIRED COMPONENTS date_time filesystem)' \
+      'foreach(boost_target IN ITEMS Boost::date_time Boost::filesystem)' \
+      '  if(NOT TARGET ${boost_target})' \
+      '    message(FATAL_ERROR "Boost package did not export ${boost_target}")' \
+      '  endif()' \
+      '  get_target_property(boost_type ${boost_target} TYPE)' \
+      '  get_target_property(boost_location ${boost_target} IMPORTED_LOCATION_RELEASE)' \
+      '  get_target_property(boost_links ${boost_target} INTERFACE_LINK_LIBRARIES)' \
+      '  message(STATUS "SDK Boost target ${boost_target}: type=${boost_type}; release=${boost_location}; links=${boost_links}")' \
+      'endforeach()' \
+      >"${boost_probe_dir}/CMakeLists.txt"
+    boost_cmake_args=("${cmake_debug_args[@]}" -S "${boost_probe_dir}" -B "${boost_probe_dir}/build" \
+      "-DCMAKE_BUILD_TYPE=${scc_build_type}" "${cmake_generator_args[@]}")
+    printf '  Boost dependency configure command: cmake'
+    printf ' %q' "${boost_cmake_args[@]}"
+    printf '\n'
+    cmake "${boost_cmake_args[@]}"
+    printf '%s\n' '  === Phase 2/3: configure the SCC consumer ==='
     printf '%s\n' \
       'cmake_minimum_required(VERSION 3.20)' \
       'project(scc_probe LANGUAGES CXX)' \
@@ -176,30 +224,22 @@ case "${profile}" in
       'else()' \
       '  message(FATAL_ERROR "scc package exports no supported target")' \
       'endif()' \
-      >"${probe_dir}/CMakeLists.txt"
+      >"${scc_probe_dir}/CMakeLists.txt"
     printf '%s\n' \
       '#include <systemc>' \
       '#include <scc/report.h>' \
       'int sc_main(int, char**) { return 0; }' \
-      >"${probe_dir}/main.cpp"
-    # Conan 的 CMakeDeps 生成器按 Release 配置随 SDK 一同归档；
-    # 不设置构建类型会在 find_package(SystemCLanguage) 阶段直接失败。
-    scc_build_type="${EDA_SCC_BUILD_TYPE:-Release}"
-    printf '  SCC dependency build type: %s\n' "${scc_build_type}"
-    cmake_args=(-S "${probe_dir}" -B "${probe_dir}/build" "-DCMAKE_BUILD_TYPE=${scc_build_type}")
-    if command -v ninja >/dev/null 2>&1; then
-      cmake_args+=(-G Ninja)
-    fi
-    if [[ "${EDA_SCC_CMAKE_DEBUG:-0}" == "1" ]]; then
-      printf '%s\n' '  CMake find debug: enabled'
-      cmake_args+=(-DCMAKE_FIND_DEBUG_MODE=ON)
-    fi
-    printf '  Configure command: cmake'
-    printf ' %q' "${cmake_args[@]}"
+      >"${scc_probe_dir}/main.cpp"
+    scc_cmake_args=("${cmake_debug_args[@]}" -S "${scc_probe_dir}" -B "${scc_probe_dir}/build" \
+      "-DCMAKE_BUILD_TYPE=${scc_build_type}" "${cmake_generator_args[@]}")
+    printf '  SCC consumer configure command: cmake'
+    printf ' %q' "${scc_cmake_args[@]}"
     printf '\n'
-    cmake "${cmake_args[@]}"
-    printf '  Build command: cmake --build %q --parallel\n' "${probe_dir}/build"
-    cmake --build "${probe_dir}/build" --parallel
+    cmake "${scc_cmake_args[@]}"
+    printf '%s\n' '  === Phase 3/3: build and link the SCC consumer ==='
+    printf '  SCC consumer build command: cmake --build %q --parallel\n' \
+      "${scc_probe_dir}/build"
+    cmake --build "${scc_probe_dir}/build" --parallel
     ;;
   systemc)
     require_tools cmake c++
