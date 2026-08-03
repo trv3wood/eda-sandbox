@@ -8,7 +8,6 @@ ENV LANG=C.UTF-8 \
     MAMBA_ROOT_PREFIX=/opt/conda
 
 RUN dnf -y install \
-        bzip2-devel \
         ca-certificates \
         cmake \
         curl \
@@ -73,9 +72,8 @@ RUN \
 
 FROM scc-compile AS scc-sdk
 
-# CMake 的 FindBoost 会误判 Conan CMakeDeps 的组件状态；库和 Boost::* target
-# 实际均已存在。SCC 的 export 还漏声明了 BZip2 依赖，导致重定位后的
-# 使用者在导入 scc::scc-util 时找不到 BZip2::BZip2。
+# SCC 仅导出了部分依赖。可选压缩库在构建时已被链接为 PUBLIC target，
+# 但没有写入 scc-config.cmake；重定位后使用 Conan 的 Config package 补齐。
 RUN set -eu; \
     scc_config="$(find /opt/eda-scc-sdk/scc -type f \
         -path '*/cmake/scc/scc-config.cmake' -print -quit)"; \
@@ -84,11 +82,17 @@ RUN set -eu; \
     grep -nE 'find_dependency\(Boost[[:space:]]+COMPONENTS[[:space:]]+date_time[[:space:]]+filesystem\)' \
         "${scc_config}"; \
     sed -i -E \
-        's/find_dependency\(Boost[[:space:]]+COMPONENTS[[:space:]]+date_time[[:space:]]+filesystem\)/find_dependency(BZip2 REQUIRED)\nfind_dependency(Boost CONFIG REQUIRED)/' \
+        's/find_dependency\(Boost[[:space:]]+COMPONENTS[[:space:]]+date_time[[:space:]]+filesystem\)/find_dependency(BZip2 CONFIG REQUIRED)\nfind_dependency(Boost CONFIG REQUIRED)\nfind_dependency(ZLIB CONFIG REQUIRED)\nfind_dependency(zstd CONFIG REQUIRED)\nfind_dependency(LibLZMA CONFIG REQUIRED)/' \
         "${scc_config}"; \
     printf '%s\n' 'SCC config after dependency compatibility patch:'; \
-    grep -nF 'find_dependency(BZip2 REQUIRED)' "${scc_config}"; \
-    grep -nF 'find_dependency(Boost CONFIG REQUIRED)' "${scc_config}"; \
+    for dependency in \
+        'find_dependency(BZip2 CONFIG REQUIRED)' \
+        'find_dependency(Boost CONFIG REQUIRED)' \
+        'find_dependency(ZLIB CONFIG REQUIRED)' \
+        'find_dependency(zstd CONFIG REQUIRED)' \
+        'find_dependency(LibLZMA CONFIG REQUIRED)'; do \
+        grep -nF "${dependency}" "${scc_config}"; \
+    done; \
     if grep -qE 'find_dependency\(Boost[[:space:]]+COMPONENTS' "${scc_config}"; then \
         printf '%s\n' 'ERROR: SCC Boost dependency still uses FindBoost mode' >&2; \
         exit 1; \
@@ -125,16 +129,6 @@ RUN set -eu; \
     find /opt/eda-scc-sdk/deps/full_deploy/host -mindepth 4 -maxdepth 4 \
         -type d -print | sort; \
     test "${package_count}" -gt 0
-# BZip2 由 Rocky 的系统包提供，SCC 的 export 却未声明它。将开发文件随
-# SDK 归档，激活后 CMake 可在解压目录中创建 BZip2::BZip2，无需目标机安装 -devel。
-RUN set -eu; \
-    mkdir -p /opt/eda-scc-sdk/deps/include /opt/eda-scc-sdk/deps/lib64; \
-    test -f /usr/include/bzlib.h; \
-    test -n "$(find /usr/lib64 -maxdepth 1 -type f -name 'libbz2.so.*' -print -quit)"; \
-    cp -a /usr/include/bzlib.h /opt/eda-scc-sdk/deps/include/; \
-    cp -a /usr/lib64/libbz2.so* /opt/eda-scc-sdk/deps/lib64/; \
-    test -f /opt/eda-scc-sdk/deps/include/bzlib.h; \
-    test -n "$(find /opt/eda-scc-sdk/deps/lib64 -maxdepth 1 -type f -name 'libbz2.so.*' -print -quit)"
 RUN set -eu; \
     systemc_config="$(find /root/.conan2/p -type f \
         -path '*/build/Release/SystemCLanguageConfig.cmake' -print -quit)"; \
@@ -162,19 +156,25 @@ RUN set -eu; \
         -path '*/cmake/scc/scc-config.cmake' -o \
         -path '*/cmake/scc/sccConfig.cmake' \
     \) -print -quit)"; \
-    lz4_config="$(find /opt/eda-scc-sdk/deps/build/Release/generators -type f \( \
-        -name 'lz4-config.cmake' -o -name 'lz4Config.cmake' \
-    \) -print -quit)"; \
     printf 'Selected SystemC CMake config: %s\n' "${systemc_config}"; \
     printf 'Selected SCC CMake config: %s\n' "${scc_config}"; \
-    printf 'Selected lz4 Conan CMake config: %s\n' "${lz4_config}"; \
     test -n "${systemc_config}"; \
     test -n "${scc_config}"; \
-    test -n "${lz4_config}"; \
-    test -f /opt/eda-scc-sdk/deps/include/bzlib.h; \
-    test -n "$(find /opt/eda-scc-sdk/deps/lib64 -maxdepth 1 -type f -name 'libbz2.so.*' -print -quit)"; \
-    grep -qF 'find_dependency(BZip2 REQUIRED)' "${scc_config}"; \
-    grep -qF 'find_dependency(Boost CONFIG REQUIRED)' "${scc_config}"
+    for package_config in BZip2Config.cmake BoostConfig.cmake ZLIBConfig.cmake \
+        zstd-config.cmake LibLZMAConfig.cmake; do \
+        config_path="$(find /opt/eda-scc-sdk/deps/build/Release/generators \
+            -maxdepth 1 -type f -name "${package_config}" -print -quit)"; \
+        printf 'Selected Conan CMake config: %s\n' "${config_path}"; \
+        test -n "${config_path}"; \
+    done; \
+    for dependency in \
+        'find_dependency(BZip2 CONFIG REQUIRED)' \
+        'find_dependency(Boost CONFIG REQUIRED)' \
+        'find_dependency(ZLIB CONFIG REQUIRED)' \
+        'find_dependency(zstd CONFIG REQUIRED)' \
+        'find_dependency(LibLZMA CONFIG REQUIRED)'; do \
+        grep -qF "${dependency}" "${scc_config}"; \
+    done
 RUN printf '%s\n' \
         '#!/usr/bin/env bash' \
         'set -Eeuo pipefail' \
