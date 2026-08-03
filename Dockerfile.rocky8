@@ -68,6 +68,22 @@ FROM scc-compile AS scc-sdk
 # 将 Conan 的运行库和 SystemC 的 CMake export 合并入用户目录可解压的 SDK。
 RUN set -eu; \
     mkdir -p /opt/eda-scc-sdk/deps; \
+    test -d /tmp/scc-conan/full_deploy/host; \
+    test -d /tmp/scc-conan/build/Release/generators; \
+    mkdir -p /opt/eda-scc-sdk/deps/build/Release; \
+    cp -a /tmp/scc-conan/full_deploy /opt/eda-scc-sdk/deps/; \
+    cp -a /tmp/scc-conan/build/Release/generators \
+        /opt/eda-scc-sdk/deps/build/Release/; \
+    printf '%s\n' '--- Conan CMake generator files ---'; \
+    find /opt/eda-scc-sdk/deps/build/Release/generators -maxdepth 1 \
+        -type f -printf '%f\n' | sort; \
+    printf '%s\n' '--- Conan generator absolute-path references ---'; \
+    if grep -R -nE '/tmp/scc-conan|/root/\.conan2' \
+        /opt/eda-scc-sdk/deps/build/Release/generators; then \
+        true; \
+    else \
+        printf '%s\n' '(none)'; \
+    fi; \
     package_count=0; \
     for package_root in /tmp/scc-conan/full_deploy/host/*/*/*/*; do \
         test -d "${package_root}"; \
@@ -76,6 +92,9 @@ RUN set -eu; \
         cp -a "${package_root}/." /opt/eda-scc-sdk/deps/; \
     done; \
     printf 'Conan deploy roots copied: %s\n' "${package_count}"; \
+    printf '%s\n' '--- Conan deployed host package roots ---'; \
+    find /opt/eda-scc-sdk/deps/full_deploy/host -mindepth 4 -maxdepth 4 \
+        -type d -print | sort; \
     test "${package_count}" -gt 0
 RUN set -eu; \
     systemc_config="$(find /root/.conan2/p -type f \
@@ -104,16 +123,22 @@ RUN set -eu; \
         -path '*/cmake/scc/scc-config.cmake' -o \
         -path '*/cmake/scc/sccConfig.cmake' \
     \) -print -quit)"; \
+    lz4_config="$(find /opt/eda-scc-sdk/deps/build/Release/generators -type f \( \
+        -name 'lz4-config.cmake' -o -name 'lz4Config.cmake' \
+    \) -print -quit)"; \
     printf 'Selected SystemC CMake config: %s\n' "${systemc_config}"; \
     printf 'Selected SCC CMake config: %s\n' "${scc_config}"; \
+    printf 'Selected lz4 Conan CMake config: %s\n' "${lz4_config}"; \
     test -n "${systemc_config}"; \
-    test -n "${scc_config}"
+    test -n "${scc_config}"; \
+    test -n "${lz4_config}"
 RUN printf '%s\n' \
         '#!/usr/bin/env bash' \
         'set -Eeuo pipefail' \
         'eda_scc_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"' \
         'export EDA_SCC_HOME="${eda_scc_root}"' \
-        'export CMAKE_PREFIX_PATH="${eda_scc_root}/scc:${eda_scc_root}/deps${CMAKE_PREFIX_PATH:+:${CMAKE_PREFIX_PATH}}"' \
+        'export CMAKE_PREFIX_PATH="${eda_scc_root}/scc:${eda_scc_root}/deps/build/Release/generators:${eda_scc_root}/deps${CMAKE_PREFIX_PATH:+:${CMAKE_PREFIX_PATH}}"' \
+        'export CMAKE_MODULE_PATH="${eda_scc_root}/deps/build/Release/generators${CMAKE_MODULE_PATH:+:${CMAKE_MODULE_PATH}}"' \
         'export LD_LIBRARY_PATH="${eda_scc_root}/scc/lib:${eda_scc_root}/scc/lib64:${eda_scc_root}/deps/lib:${eda_scc_root}/deps/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"' \
         > /opt/eda-scc-sdk/activate.sh && \
     chmod 0755 /opt/eda-scc-sdk/activate.sh
@@ -129,7 +154,8 @@ RUN chmod 0755 /opt/eda-sandbox/scripts/regress.sh && \
     stat -c 'regress script: %A (%a) %n' /opt/eda-sandbox/scripts/regress.sh
 
 ENV EDA_SCC_HOME=/opt/eda-scc-sdk \
-    CMAKE_PREFIX_PATH=/opt/eda-scc-sdk/scc:/opt/eda-scc-sdk/deps \
+    CMAKE_PREFIX_PATH=/opt/eda-scc-sdk/scc:/opt/eda-scc-sdk/deps/build/Release/generators:/opt/eda-scc-sdk/deps \
+    CMAKE_MODULE_PATH=/opt/eda-scc-sdk/deps/build/Release/generators \
     LD_LIBRARY_PATH=/opt/eda-scc-sdk/scc/lib:/opt/eda-scc-sdk/scc/lib64:/opt/eda-scc-sdk/deps/lib:/opt/eda-scc-sdk/deps/lib64 \
     IMAGE_REVISION=${IMAGE_REVISION}
 
