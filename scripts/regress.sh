@@ -192,7 +192,7 @@ case "${profile}" in
     printf '%s\n' \
       'cmake_minimum_required(VERSION 3.20)' \
       'project(scc_boost_probe LANGUAGES CXX)' \
-      'find_package(Boost 1.70 REQUIRED COMPONENTS date_time filesystem)' \
+      'find_package(Boost CONFIG REQUIRED)' \
       'foreach(boost_target IN ITEMS Boost::date_time Boost::filesystem)' \
       '  if(NOT TARGET ${boost_target})' \
       '    message(FATAL_ERROR "Boost package did not export ${boost_target}")' \
