@@ -45,7 +45,7 @@ ARG IMAGE_REVISION=unknown
 COPY --from=uhdm-python-builder /opt/conda/envs/uhdm /opt/conda/envs/uhdm
 COPY pyproject.toml /opt/systemc-agent/
 COPY src /opt/systemc-agent/src
-COPY scripts/regress.sh /opt/systemc-agent/scripts/regress.sh
+COPY scripts/regress*.sh /opt/systemc-agent/scripts/
 RUN /opt/conda/envs/uhdm/bin/python -m pip install --no-deps /opt/systemc-agent
 ENV MAMBA_ROOT_PREFIX=/opt/conda \
     PATH=/opt/conda/envs/uhdm/bin:/usr/local/bin:/usr/bin \
@@ -146,7 +146,7 @@ COPY --from=scc-builder /opt/scc /opt/scc
 COPY --from=scc-builder /opt/scc-deps /opt/scc-deps
 COPY pyproject.toml /opt/systemc-agent/
 COPY src /opt/systemc-agent/src
-COPY scripts/regress.sh /opt/systemc-agent/scripts/regress.sh
+COPY scripts/regress*.sh /opt/systemc-agent/scripts/
 RUN python3 -m pip install --break-system-packages --no-cache-dir /opt/systemc-agent
 ENV PATH=/opt/scc/bin:/usr/local/bin:/usr/bin \
     CMAKE_PREFIX_PATH=/opt/scc:/opt/scc-deps \
