@@ -156,8 +156,21 @@ def _patch_targets(paths: dict[str, Path], handoff: dict[str, Any]) -> list[dict
     targets = []
     for declared in handoff["edit_targets"]:
         node = index[declared["node_id"]]
-        relative = safe_relative_path(node["path"])
+        source_path = Path(node["path"])
+        if source_path.is_absolute():
+            # FuseSoC 闭包可位于项目目录外。只把获批节点所在源文件复制到
+            # 隔离树的稳定相对位置，绝不在原始 checkout 上编辑。
+            relative = (
+                Path("external_sources")
+                / hashlib.sha256(str(source_path).encode("utf-8")).hexdigest()[:16]
+                / source_path.name
+            )
+        else:
+            relative = safe_relative_path(node["path"])
         copied = paths["rtl_worktree"] / relative
+        if source_path.is_absolute() and not copied.exists():
+            copied.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_path, copied)
         if not copied.is_file():
             raise FileNotFoundError(f"patch source was not copied: {relative}")
         data = copied.read_bytes()

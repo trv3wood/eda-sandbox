@@ -87,7 +87,9 @@ def _node_bytes(node: Any, data: bytes) -> bytes | None:
     return None
 
 
-def _parse_and_structure(root: Path, files: list[str]) -> tuple[dict[str, Any], dict[str, list[str]]]:
+def _parse_and_structure(
+    root: Path, files: list[str], *, semantic_required: bool = True
+) -> tuple[dict[str, Any], dict[str, list[str]]]:
     try:
         import pyslang  # type: ignore[import-not-found]
     except ImportError:
@@ -104,8 +106,9 @@ def _parse_and_structure(root: Path, files: list[str]) -> tuple[dict[str, Any], 
         syntax = getattr(pyslang, "syntax", pyslang)
         tree = syntax.SyntaxTree.fromFile(str(path))
         diagnostics = list(getattr(tree, "diagnostics", []))
-        if diagnostics:
-            errors.extend(f"{relative}: {getattr(item, 'code', item)}" for item in diagnostics)
+        tree_errors = [item for item in diagnostics if item.isError()]
+        if tree_errors:
+            errors.extend(f"{relative}: {getattr(item, 'code', item)}" for item in tree_errors)
             continue
         trees.append(tree)
         data = path.read_bytes()
@@ -130,10 +133,12 @@ def _parse_and_structure(root: Path, files: list[str]) -> tuple[dict[str, Any], 
     compilation = pyslang.ast.Compilation()
     for tree in trees:
         compilation.addSyntaxTree(tree)
-    semantic_diagnostics = list(compilation.getAllDiagnostics())
-    for item in semantic_diagnostics:
+    # Patch 模式的隔离树只携带获批修改的源文件；完整闭包的语义/综合
+    # 检查由 handoff 中显式命令和前置 UHDM 图负责。此时只比较 CST 结构，
+    # 避免把外部 FuseSoC 依赖缺失误判成局部补丁失败。
+    for item in compilation.getAllDiagnostics():
         message = str(getattr(item, "code", item))
-        if item.isError():
+        if item.isError() and semantic_required:
             errors.append(message)
         else:
             warnings.append(message)
@@ -149,18 +154,28 @@ def _parse_and_structure(root: Path, files: list[str]) -> tuple[dict[str, Any], 
 def _structure_gate(
     paths: dict[str, Path], generation: dict[str, Any], handoff: dict[str, Any]
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    baseline_files = sorted(
-        str(path.relative_to(paths["rtl_baseline"]))
-        for path in paths["rtl_baseline"].rglob("*")
-        if path.is_file() and path.suffix.lower() in {".v", ".sv", ".svp"}
+    if generation["mode"] == "patch":
+        # 只比较正式批准的语法节点所在文件，避免无关项目文件扩大门槛。
+        baseline_files = sorted(generation["files"])
+        candidate_files = sorted(generation["files"])
+    else:
+        baseline_files = sorted(
+            str(path.relative_to(paths["rtl_baseline"]))
+            for path in paths["rtl_baseline"].rglob("*")
+            if path.is_file() and path.suffix.lower() in {".v", ".sv", ".svp"}
+        )
+        candidate_files = sorted(
+            str(path.relative_to(paths["rtl_worktree"]))
+            for path in paths["rtl_worktree"].rglob("*")
+            if path.is_file() and path.suffix.lower() in {".v", ".sv", ".svp"}
+        )
+    semantic_required = generation["mode"] != "patch"
+    before_parse, before = _parse_and_structure(
+        paths["rtl_baseline"], baseline_files, semantic_required=semantic_required
     )
-    candidate_files = sorted(
-        str(path.relative_to(paths["rtl_worktree"]))
-        for path in paths["rtl_worktree"].rglob("*")
-        if path.is_file() and path.suffix.lower() in {".v", ".sv", ".svp"}
+    after_parse, after = _parse_and_structure(
+        paths["rtl_worktree"], candidate_files, semantic_required=semantic_required
     )
-    before_parse, before = _parse_and_structure(paths["rtl_baseline"], baseline_files)
-    after_parse, after = _parse_and_structure(paths["rtl_worktree"], candidate_files)
     parse_gate = after_parse
     if before_parse["status"] != "passed" or after_parse["status"] != "passed":
         return parse_gate, _blocked("structure comparison requires successful baseline and candidate parsing")

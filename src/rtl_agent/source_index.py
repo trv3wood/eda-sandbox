@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from pathlib import Path
 from typing import Any
 
@@ -50,13 +51,21 @@ def _line_column(data: bytes, offset: int) -> tuple[int, int]:
     return line, column
 
 
-def _index_file(path: Path, project_dir: Path, pyslang: Any) -> list[dict[str, Any]]:
+def _index_file(
+    path: Path, project_dir: Path, pyslang: Any, include_dirs: list[Path]
+) -> list[dict[str, Any]]:
     data = path.read_bytes()
     syntax = getattr(pyslang, "syntax", pyslang)
-    tree = syntax.SyntaxTree.fromFile(str(path))
+    # FuseSoC 等工程通过 manifest 传递 `include 路径；逐文件直接解析会
+    # 错过这些目录并把可编译的真实 RTL 误报为语法失败。
+    source_manager = pyslang.SourceManager()
+    for include_dir in include_dirs:
+        source_manager.addUserDirectories(str(include_dir))
+    tree = syntax.SyntaxTree.fromFile(str(path), source_manager)
     diagnostics = list(getattr(tree, "diagnostics", []))
-    if diagnostics:
-        raise ValueError(f"pyslang failed to parse {path}: {diagnostics[0]}")
+    errors = [item for item in diagnostics if item.isError()]
+    if errors:
+        raise ValueError(f"pyslang failed to parse {path}: {errors[0]}")
     records: list[dict[str, Any]] = []
 
     def visit(node: Any) -> Any:
@@ -99,16 +108,38 @@ def _index_file(path: Path, project_dir: Path, pyslang: Any) -> list[dict[str, A
     return records
 
 
+def _include_dirs(project_dir: Path, manifest: dict[str, Any]) -> list[Path]:
+    compile_config = manifest.get("eda_compile", {})
+    if not isinstance(compile_config, dict):
+        raise ValueError("manifest eda_compile must be a mapping")
+    values = compile_config.get("include_dirs", [])
+    if not isinstance(values, list) or not all(isinstance(value, str) and value for value in values):
+        raise ValueError("eda_compile.include_dirs must be a list of strings")
+    resolved = []
+    for value in values:
+        expanded = os.path.expandvars(os.path.expanduser(value))
+        if "$" in expanded:
+            raise ValueError(f"eda_compile.include_dirs has unresolved variable: {value}")
+        candidate = Path(expanded)
+        path = (candidate if candidate.is_absolute() else project_dir / candidate).resolve()
+        if not path.is_dir():
+            raise FileNotFoundError(f"SystemVerilog include directory does not exist: {value}")
+        if path not in resolved:
+            resolved.append(path)
+    return resolved
+
+
 def build_source_index(project_dir: Path) -> dict[str, Any]:
     """使用 pyslang CST 建立精确、可摘要的源码节点索引。"""
     try:
         import pyslang  # type: ignore[import-not-found]
     except ImportError as exc:
         raise RuntimeError("pyslang is required; install the project with the rtl extra") from exc
-    _, sources = manifest_and_sources(project_dir)
+    manifest, sources = manifest_and_sources(project_dir)
+    include_dirs = _include_dirs(project_dir, manifest)
     records: list[dict[str, Any]] = []
     for source in sources:
-        records.extend(_index_file(source, project_dir, pyslang))
+        records.extend(_index_file(source, project_dir, pyslang, include_dirs))
     path = project_paths(project_dir)["rtl_source_index"]
     write_jsonl(path, records)
     return {

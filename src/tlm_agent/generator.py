@@ -263,7 +263,9 @@ if(NOT TARGET SystemC::systemc)
         IMPORTED_LOCATION "${{SYSTEMC_LIBRARY}}"
         INTERFACE_INCLUDE_DIRECTORIES "${{SYSTEMC_INCLUDE_DIR}}")
 endif()
-find_package(scc CONFIG REQUIRED)
+# SCC 是首选的报告/集成适配层，但基础 SystemC 模型不应因可选 SDK 的
+# 传递依赖缺失而无法构建。找不到可用 SCC 配置时保留纯 SystemC 路径。
+find_package(scc CONFIG QUIET)
 
 add_library(generated_model
     {sources}
@@ -278,7 +280,7 @@ elseif(TARGET scc)
     target_link_libraries(generated_model PUBLIC scc)
     target_compile_definitions(generated_model PUBLIC MODEL_HAS_SCC=1)
 else()
-    message(FATAL_ERROR "The installed scc package exports no supported target.")
+    message(STATUS "SCC package is unavailable; building the SystemC-only adapter")
 endif()
 
 enable_testing()

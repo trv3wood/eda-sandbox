@@ -446,7 +446,7 @@ int sc_main(int, char**) {
                 (paths["model"] / "CMakeLists.txt").read_text(),
             )
             self.assertIn(
-                "find_package(scc CONFIG REQUIRED)",
+                "find_package(scc CONFIG QUIET)",
                 (paths["model"] / "CMakeLists.txt").read_text(),
             )
             self.assertIn(
