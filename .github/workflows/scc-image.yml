@@ -101,6 +101,14 @@ jobs:
           docker run --rm \
             -e EDA_SCC_CMAKE_DEBUG_PACKAGES="${{ inputs.cmake_debug_packages || '' }}" \
             "$IMAGE" bash /opt/systemc-agent/scripts/regress.sh scc
+          docker run --rm "$IMAGE" bash -lc '
+            set -Eeuo pipefail
+            echo "=== SCC SDK CMake package inventory ==="
+            find /opt/scc-deps/build/Release/generators -maxdepth 1 -type f \
+              \( -name "*Config.cmake" -o -name "*-config.cmake" \) -printf "%f\n" | sort
+            echo "=== SCC exported dependencies ==="
+            grep -n "find_dependency" /opt/scc/lib/cmake/scc/scc-config.cmake || true
+          '
           bytes="$(docker image inspect "$IMAGE" --format '{{.Size}}')"
           test "$bytes" -le "$((2 * 1024 * 1024 * 1024))"
           docker push "$IMAGE"

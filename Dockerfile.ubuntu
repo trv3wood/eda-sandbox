@@ -78,7 +78,9 @@ RUN cd /tmp/scc-src && \
     /opt/conan/bin/conan install . \
         --output-folder=/tmp/scc-conan \
         --deployer=full_deploy \
-        --build=missing -s build_type=Release
+        --build=missing \
+        -s build_type=Release \
+        -o 'boost/*:without_process=True'
 RUN cd /tmp/scc-src && \
     cmake -S . -B /tmp/scc-build -G Ninja \
         -DCMAKE_TOOLCHAIN_FILE=/tmp/scc-conan/build/Release/generators/conan_toolchain.cmake \
@@ -87,8 +89,9 @@ RUN cd /tmp/scc-src && \
     cmake --install /tmp/scc-build
 
 FROM scc-compile AS scc-builder
-# Keep Conan's deployed runtime libraries, then use SystemC's own CMake install
-# script to create a complete, relocatable CMake package configuration.
+# Keep Conan's deployed runtime libraries and CMakeDeps package configuration,
+# then use SystemC's own CMake install script to create a complete,
+# relocatable CMake package configuration.
 RUN set -eu; \
     echo "SCC deploy: merging Conan full_deploy package roots" >&2; \
     mkdir -p /opt/scc-deps; \
@@ -106,6 +109,49 @@ RUN set -eu; \
         echo "ERROR: no Conan package roots were deployed" >&2; \
         exit 1; \
     fi
+RUN set -eu; \
+    conan_generators=/tmp/scc-conan/build/Release/generators; \
+    test -d "${conan_generators}"; \
+    mkdir -p /opt/scc-deps/build/Release; \
+    cp -a "${conan_generators}" /opt/scc-deps/build/Release/; \
+    for required_file in \
+        BZip2Config.cmake \
+        BoostConfig.cmake \
+        ZLIBConfig.cmake \
+        zstd-config.cmake \
+        LibLZMAConfig.cmake; do \
+        required_path="/opt/scc-deps/build/Release/generators/${required_file}"; \
+        if [ ! -f "${required_path}" ]; then \
+            echo "ERROR: missing Conan CMake package configuration: ${required_path}" >&2; \
+            find /opt/scc-deps/build/Release/generators -maxdepth 1 -type f \
+                -printf '%f\\n' 2>&1 | sort >&2; \
+            exit 1; \
+        fi; \
+        echo "SCC deploy: found ${required_path}" >&2; \
+    done; \
+    echo "SCC deploy: checking Boost generator has no unavailable boost_process library"; \
+    if grep -R -n 'boost_process' /opt/scc-deps/build/Release/generators; then \
+        echo "ERROR: Boost CMake generator still references unavailable boost_process" >&2; \
+        exit 1; \
+    fi
+RUN set -eu; \
+    scc_config=/opt/scc/lib/cmake/scc/scc-config.cmake; \
+    echo "SCC export before dependency compatibility patch:"; \
+    grep -n 'find_dependency' /opt/scc/lib/cmake/scc/scc-config.cmake || true; \
+    test -f "${scc_config}"; \
+    grep -nE 'find_dependency\(Boost[[:space:]]+COMPONENTS[[:space:]]+date_time[[:space:]]+filesystem\)' \
+        "${scc_config}"; \
+    sed -i -E \
+        's/find_dependency\(Boost[[:space:]]+COMPONENTS[[:space:]]+date_time[[:space:]]+filesystem\)/find_dependency(BZip2 CONFIG REQUIRED)\nfind_dependency(Boost CONFIG REQUIRED)\nfind_dependency(ZLIB CONFIG REQUIRED)\nfind_dependency(zstd CONFIG REQUIRED)\nfind_dependency(LibLZMA CONFIG REQUIRED)/' \
+        "${scc_config}"; \
+    for dependency in \
+        'find_dependency(BZip2 CONFIG REQUIRED)' \
+        'find_dependency(Boost CONFIG REQUIRED)' \
+        'find_dependency(ZLIB CONFIG REQUIRED)' \
+        'find_dependency(zstd CONFIG REQUIRED)' \
+        'find_dependency(LibLZMA CONFIG REQUIRED)'; do \
+        grep -nF "${dependency}" "${scc_config}"; \
+    done
 RUN set -eu; \
     echo "SCC install: locating SystemC CMake build tree" >&2; \
     systemc_config="$(find /root/.conan2/p -type f \
@@ -284,9 +330,11 @@ ENV PATH=/opt/scc/bin:/usr/local/bin:/usr/bin \
     EDA_TOOL_CXX=/usr/bin/c++ \
     EDA_TOOL_CTEST=/usr/bin/ctest \
     EDA_TOOL_NINJA=/usr/bin/ninja \
+    EDA_CXX_STANDARD=17 \
     EDA_SCC_HOME=/opt/scc \
     EDA_SCC_DEPS=/opt/scc-deps \
-    CMAKE_PREFIX_PATH=/opt/scc:/opt/scc-deps \
+    CMAKE_PREFIX_PATH=/opt/scc:/opt/scc-deps/build/Release/generators:/opt/scc-deps \
+    CMAKE_MODULE_PATH=/opt/scc-deps/build/Release/generators \
     LD_LIBRARY_PATH=/opt/scc/lib:/opt/scc-deps/lib \
     IMAGE_REVISION=${IMAGE_REVISION}
 RUN test -f \
@@ -296,5 +344,6 @@ RUN test -f \
     test -f /opt/scc-deps/lib/cmake/spdlog/spdlog-config.cmake && \
     test -f /opt/scc-deps/lib/cmake/yaml-cpp/yaml-cpp-config.cmake && \
     test -f /opt/scc-deps/lib/cmake/libbacktrace/libbacktrace-config.cmake && \
-    test -f /opt/scc-deps/lib/cmake/zstd/zstd-config.cmake
+    test -f /opt/scc-deps/lib/cmake/zstd/zstd-config.cmake && \
+    test -f /opt/scc-deps/build/Release/generators/BoostConfig.cmake
 CMD ["/bin/bash"]

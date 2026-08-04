@@ -36,8 +36,8 @@ fi
 printf '  SCC:     %s\n' "${scc_prefix}"
 printf '  CMAKE_PREFIX_PATH: %s\n' "${CMAKE_PREFIX_PATH:-<unset>}"
 printf '  LD_LIBRARY_PATH:   %s\n' "${LD_LIBRARY_PATH:-<unset>}"
-# Rocky SDK 会随包归档 Conan generators；Ubuntu 镜像使用 CMake 的
-# FindBoost module 查找部署后的头文件和库，不能强制要求 Boost Config。
+# Rocky SDK 会随包归档 Conan generators；Ubuntu 镜像可能只部署包本身。
+# 探针依据实际可用的包配置选择 Config 或 FindBoost，避免把可选布局当作前置条件。
 boost_config="$(find "${scc_deps}" -type f \
   \( -iname 'boostconfig.cmake' -o -iname 'boost-config.cmake' \) -print -quit)"
 printf '%s\n' '  Boost CMake package files:'
@@ -63,8 +63,9 @@ trap 'rm -rf "${probe_root}"' EXIT
 boost_probe_dir="${probe_root}/01-boost-components"
 scc_probe_dir="${probe_root}/02-scc-package"
 mkdir -p "${boost_probe_dir}" "${scc_probe_dir}"
-# Rocky 的 Conan generators 按 Release 配置归档；Ubuntu 的 module-mode
-# Boost 也使用相同构建类型，保持两个 SDK 的探针参数一致。
+# Conan 的 CMakeDeps 生成器按 Release 配置随 SDK 一同归档；
+# 不设置构建类型会在 find_package(SystemCLanguage) 阶段直接失败；
+# Ubuntu 的 module-mode Boost 也使用相同构建类型。
 scc_build_type="${EDA_SCC_BUILD_TYPE:-Release}"
 printf '  SCC dependency build type: %s\n' "${scc_build_type}"
 cmake_debug_args=()

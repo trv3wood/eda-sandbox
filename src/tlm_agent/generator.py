@@ -211,7 +211,7 @@ public:
 """
 
 
-def _cmake(modules: list[dict], testbench: dict) -> str:
+def _cmake(modules: list[dict], testbench: dict, *, cxx_standard: int) -> str:
     sources = "\n    ".join(
         f"src/{_identifier(module['name'])}.cpp" for module in modules
     )
@@ -235,7 +235,14 @@ set_tests_properties(contract::{test['id']} PROPERTIES TIMEOUT {timeout})"""
     return f"""cmake_minimum_required(VERSION 3.16)
 project(generated_systemc_model LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 17)
+set(MODEL_CXX_STANDARD {cxx_standard} CACHE STRING
+    "C++ standard required by the selected SystemC/SCC SDK")
+set_property(CACHE MODEL_CXX_STANDARD PROPERTY STRINGS 14 17)
+set(_model_supported_cxx_standards 14 17)
+if(NOT MODEL_CXX_STANDARD IN_LIST _model_supported_cxx_standards)
+    message(FATAL_ERROR "MODEL_CXX_STANDARD must be 14 or 17")
+endif()
+set(CMAKE_CXX_STANDARD ${{MODEL_CXX_STANDARD}})
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -324,6 +331,10 @@ def generate_model(project_dir: Path) -> dict:
         raise ValueError(f"model generation blocked: {reason}")
     paths = project_paths(project_dir)
     architecture = load_yaml(paths["contracts"])
+    language = architecture.get("model", {}).get("language")
+    cxx_standards = {"c++14": 14, "c++17": 17}
+    if language not in cxx_standards:
+        raise ValueError("model.language must be c++14 or c++17")
     top_name = architecture["top"]
     handoff = architecture["tlm_handoff"]
     modules = handoff["functional_modules"]
@@ -349,7 +360,7 @@ def generate_model(project_dir: Path) -> dict:
     )
     (test_dir / "model_smoke.cpp").write_text(_smoke_test(), encoding="utf-8")
     (paths["model"] / "CMakeLists.txt").write_text(
-        _cmake(modules, testbench), encoding="utf-8"
+        _cmake(modules, testbench, cxx_standard=cxx_standards[language]), encoding="utf-8"
     )
     (paths["model"] / ".gitignore").write_text(_gitignore(), encoding="utf-8")
     dump_yaml(paths["model"] / "implementation-handoff.yaml", handoff)

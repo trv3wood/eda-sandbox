@@ -94,7 +94,9 @@ def create_architecture_draft(
         "categories": categories,
         "model": {
             "abstraction": "loosely-timed-tlm-2.0",
-            "language": "c++17",
+            # Rocky 8 内网 SDK 的 SystemC 2.3.4 以 C++14 构建；C++14 代码
+            # 仍可在容器的 C++17 工具链上编译。
+            "language": "c++14",
             "scc_policy": "scc-first-adapter-isolated",
         },
         "tlm_handoff": {
@@ -129,6 +131,9 @@ def validate_architecture(project_dir: Path) -> list[str]:
     _validate_rtl_gate(paths, errors)
     if architecture.get("schema_version") != 4:
         errors.append("schema_version must be 4 for graph-backed approval")
+    language = architecture.get("model", {}).get("language")
+    if language not in {"c++14", "c++17"}:
+        errors.append("model.language must be c++14 or c++17")
     categories = architecture.get("categories", {})
     evidence_ids = {
         item["id"]

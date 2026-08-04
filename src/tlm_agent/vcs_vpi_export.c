@@ -210,6 +210,8 @@ static void module_object(vpiHandle module)
     fputc('{', output_stream);
     property_string("name", vpiFullName, module);
     fputc(',', output_stream);
+    property_string("hierarchy", vpiFullName, module);
+    fputc(',', output_stream);
     property_string("definition", vpiDefName, module);
     location(module);
     fputs(",\"ports\":", output_stream);
