@@ -2,21 +2,21 @@
 set -Eeuo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${script_dir}/regress-common.sh"
+load_toolchain_config
 profile="${1:-auto}"
 
 if [[ "${profile}" == "auto" ]]; then
-  if [[ -d /opt/eda-scc-sdk ]]; then
+  if [[ -n "${EDA_SCC_HOME:-}" ]]; then
     profile="scc"
   elif [[ -f /etc/rocky-release ]]; then
     profile="systemc"
-  elif command -v vcs >/dev/null && command -v eda-rtl-produce >/dev/null; then
+  elif command -v "$(tool_path EDA_TOOL_VCS vcs)" >/dev/null && command -v eda-rtl-produce >/dev/null; then
     profile="vcs"
-  elif command -v surelog >/dev/null && command -v eda-uhdm >/dev/null; then
+  elif command -v "$(tool_path EDA_TOOL_SURELOG surelog)" >/dev/null && command -v "$(tool_path EDA_TOOL_UHDM eda-uhdm)" >/dev/null; then
     profile="uhdm"
-  elif [[ -d /opt/systemc ]]; then
+  elif [[ -n "${EDA_SYSTEMC_HOME:-}" ]]; then
     profile="systemc"
-  elif [[ -d /opt/scc ]]; then
-    profile="scc"
   else
     profile="agent"
   fi
@@ -30,7 +30,6 @@ case "${profile}" in
     ;;
 esac
 
-source "${script_dir}/regress-common.sh"
 export EDA_REGRESS_PROFILE="${profile}"
 print_environment
 exec bash "${script_dir}/regress-${profile}.sh"

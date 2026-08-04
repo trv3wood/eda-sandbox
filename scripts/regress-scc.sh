@@ -4,14 +4,16 @@ set -Eeuo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${script_dir}/regress-common.sh"
 
-require_tools cmake c++ find
-scc_home="${EDA_SCC_HOME:-/opt/scc}"
+cmake_tool="$(tool_path EDA_TOOL_CMAKE cmake)"
+cxx_tool="$(tool_path EDA_TOOL_CXX c++)"
+require_tools "${cmake_tool}" "${cxx_tool}" find
+scc_home="${EDA_SCC_HOME:?EDA_SCC_HOME must point to the SCC SDK}"
 if [[ -d "${scc_home}/scc" ]]; then
   scc_prefix="${scc_home}/scc"
   scc_deps="${scc_home}/deps"
 else
   scc_prefix="${scc_home}"
-  scc_deps="${EDA_SCC_DEPS:-/opt/scc-deps}"
+  scc_deps="${EDA_SCC_DEPS:?EDA_SCC_DEPS must point to SCC dependencies}"
 fi
 test -d "${scc_prefix}/include"
 systemc_config="$(find "${scc_deps}" -type f \
@@ -24,9 +26,10 @@ printf '  SystemC CMake: %s\n' "${systemc_config}"
 printf '  SCC CMake:     %s\n' "${scc_config}"
 test -n "${systemc_config}"
 test -n "${scc_config}"
-printf '  CMake:   %s\n' "$(cmake --version | head -n 1)"
-if command -v ninja >/dev/null 2>&1; then
-  printf '  Ninja:   %s\n' "$(ninja --version)"
+printf '  CMake:   %s\n' "${cmake_tool}"
+if command -v "$(tool_path EDA_TOOL_NINJA ninja)" >/dev/null 2>&1; then
+  ninja_tool="$(tool_path EDA_TOOL_NINJA ninja)"
+  printf '  Ninja:   %s\n' "${ninja_tool}"
 else
   printf '  Ninja:   unavailable; using CMake default generator\n'
 fi
@@ -64,7 +67,7 @@ elif [[ "${EDA_SCC_CMAKE_DEBUG:-0}" == "1" ]]; then
   cmake_debug_args+=(-DCMAKE_FIND_DEBUG_MODE=ON)
 fi
 cmake_generator_args=()
-if command -v ninja >/dev/null 2>&1; then
+if command -v "$(tool_path EDA_TOOL_NINJA ninja)" >/dev/null 2>&1; then
   cmake_generator_args=(-G Ninja)
 fi
 printf '%s\n' '  === Phase 1/3: verify Boost date_time and filesystem ==='
@@ -87,7 +90,7 @@ boost_cmake_args=("${cmake_debug_args[@]}" -S "${boost_probe_dir}" -B "${boost_p
 printf '  Boost dependency configure command: cmake'
 printf ' %q' "${boost_cmake_args[@]}"
 printf '\n'
-cmake "${boost_cmake_args[@]}"
+"${cmake_tool}" "${boost_cmake_args[@]}"
 printf '%s\n' '  === Phase 2/3: configure the SCC consumer ==='
 printf '%s\n' \
   'cmake_minimum_required(VERSION 3.20)' \
@@ -114,8 +117,8 @@ scc_cmake_args=("${cmake_debug_args[@]}" -S "${scc_probe_dir}" -B "${scc_probe_d
 printf '  SCC consumer configure command: cmake'
 printf ' %q' "${scc_cmake_args[@]}"
 printf '\n'
-cmake "${scc_cmake_args[@]}"
+"${cmake_tool}" "${scc_cmake_args[@]}"
 printf '%s\n' '  === Phase 3/3: build and link the SCC consumer ==='
 printf '  SCC consumer build command: cmake --build %q --parallel\n' \
   "${scc_probe_dir}/build"
-cmake --build "${scc_probe_dir}/build" --parallel
+"${cmake_tool}" --build "${scc_probe_dir}/build" --parallel

@@ -4,8 +4,10 @@ set -Eeuo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${script_dir}/regress-common.sh"
 
-require_tools python3 cc vcs systemc-tlm-agent eda-rtl-produce
-vcs -ID
+cc_tool="$(tool_path EDA_TOOL_CC cc)"
+vcs_tool="$(tool_path EDA_TOOL_VCS vcs)"
+require_tools python3 "${cc_tool}" "${vcs_tool}" systemc-tlm-agent eda-rtl-produce
+"${vcs_tool}" -ID
 probe_dir="$(mktemp -d)"
 trap 'rm -rf "${probe_dir}"' EXIT
 printf '%s\n' \
@@ -47,4 +49,3 @@ python3 -c \
 python3 -c \
   'import json,sys; r=[json.loads(x) for x in open(sys.argv[1])]; assert any(x["type"] == "IMPORTS" for x in r)' \
   "${probe_dir}/.systemc-agent/graph/relationships.jsonl"
-

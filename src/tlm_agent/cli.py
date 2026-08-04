@@ -16,6 +16,7 @@ from .extractors import extract_project
 from .generator import generate_model
 from .io import dump_yaml, project_paths
 from .tool_producers import finalize_tools
+from .toolchain import CONFIG_ENV, load_toolchain_config
 from .graph.runtime import (
     build_faiss_index,
     build_parquet_store,
@@ -46,6 +47,10 @@ def _project(value: str) -> Path:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="systemc-tlm-agent")
+    parser.add_argument(
+        "--toolchain-config",
+        help=f"KEY=VALUE toolchain config (also read from {CONFIG_ENV})",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     init = subparsers.add_parser("init", help="create a modeling project manifest")
@@ -260,6 +265,7 @@ def main(argv: list[str] | None = None) -> int:
     """Parse one command, dispatch it, and emit machine-readable JSON."""
     parser = build_parser()
     args = parser.parse_args(argv)
+    load_toolchain_config(args.toolchain_config)
     project_dir = _project(getattr(args, "project", "."))
     try:
         if args.command == "init":

@@ -15,6 +15,16 @@
 wrapper 在临时 builder 中生成；Surelog 本身不再编译。商业 EDA 二进制和许可证
 不会进入容器镜像，VCS producer 仅在研发网宿主环境运行。
 
+### 显式工具链配置
+
+宿主机运行不依赖容器内的 `/opt` 布局。复制 [env/toolchain.env.example](env/toolchain.env.example) 到工作目录外的位置，填入本机二进制和 SDK 的绝对路径，再设置：
+
+```bash
+export SYSTEMC_TLM_TOOLCHAIN_CONFIG="$HOME/Work/eda-sandbox/toolchain.env"
+```
+
+Python CLI 和 `scripts/regress.sh` 都会读取这个 `KEY=VALUE` 文件；也可以对 CLI 使用 `--toolchain-config /path/to/toolchain.env`。未配置的工具仍按 `PATH` 查找，SCC/SystemC 回归则要求显式设置相应的 `EDA_SCC_HOME`、`EDA_SCC_DEPS` 或 `EDA_SYSTEMC_HOME`。容器镜像通过这些变量声明自身的工具路径，因而同一套脚本不再包含 `/opt` 的路径假设。
+
 ## 构建与运行
 
 使用 Docker：

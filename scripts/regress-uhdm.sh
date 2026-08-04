@@ -4,10 +4,14 @@ set -Eeuo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${script_dir}/regress-common.sh"
 
+surelog_tool="$(tool_path EDA_TOOL_SURELOG surelog)"
+uhdm_lint_tool="$(tool_path EDA_TOOL_UHDM_LINT uhdm-lint)"
+uhdm_hier_tool="$(tool_path EDA_TOOL_UHDM_HIER uhdm-hier)"
+uhdm_tool="$(tool_path EDA_TOOL_UHDM eda-uhdm)"
 require_tools \
-  python3 surelog uhdm-lint uhdm-hier eda-uhdm eda-uhdm-produce
+  python3 "${surelog_tool}" "${uhdm_lint_tool}" "${uhdm_hier_tool}" "${uhdm_tool}" eda-uhdm-produce
 python3 -c 'import uhdm; print("  UHDM:    Python binding available")'
-eda-uhdm version
+"${uhdm_tool}" version
 probe_dir="$(mktemp -d)"
 trap 'rm -rf "${probe_dir}"' EXIT
 printf '%s\n' \
@@ -31,11 +35,10 @@ printf '%s\n' \
   >"${probe_dir}/query.py"
 (
   cd "${probe_dir}"
-  surelog top.sv -top top -parse -elabuhdm >/dev/null
-  uhdm-lint slpp_all/surelog.uhdm >/dev/null
-  uhdm-hier slpp_all/surelog.uhdm --line >uhdm-hier.log
+  "${surelog_tool}" top.sv -top top -parse -elabuhdm >/dev/null
+  "${uhdm_lint_tool}" slpp_all/surelog.uhdm >/dev/null
+  "${uhdm_hier_tool}" slpp_all/surelog.uhdm --line >uhdm-hier.log
   grep -q 'top' uhdm-hier.log
-  eda-uhdm run slpp_all/surelog.uhdm query.py \
+  "${uhdm_tool}" run slpp_all/surelog.uhdm query.py \
     --output-dir query-output
 )
-

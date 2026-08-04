@@ -2,6 +2,8 @@
 set -Eeuo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "${repo_root}/scripts/regress-common.sh"
+load_toolchain_config
 
 usage() {
   cat <<'EOF'
@@ -152,7 +154,8 @@ if [[ "${role}" == "agent" || "${role}" == "vcs" ]]; then
     printf 'ERROR: COMMAND is required unless --shell is used\n' >&2
     exit 2
   }
-  command -v uv >/dev/null 2>&1 || {
+  uv_tool="$(tool_path EDA_TOOL_UV uv)"
+  command -v "${uv_tool}" >/dev/null 2>&1 || {
     printf 'ERROR: uv is required for the local agent role; run uv sync\n' >&2
     exit 1
   }
@@ -164,20 +167,25 @@ if [[ "${role}" == "agent" || "${role}" == "vcs" ]]; then
       *) local_args+=("${argument}") ;;
     esac
   done
-  exec uv run --project "${repo_root}" -- "${local_args[@]}"
+  exec "${uv_tool}" run --project "${repo_root}" -- "${local_args[@]}"
 fi
 
 image="${image_override:-${role_image:-${EDA_IMAGE_PREFIX:-ghcr.io/trv3wood}/${image_name}:${tag}}}"
 engine="${EDA_CONTAINER_ENGINE:-}"
 if [[ -z "${engine}" ]]; then
-  if command -v podman >/dev/null 2>&1; then
-    engine="podman"
-  elif command -v docker >/dev/null 2>&1; then
-    engine="docker"
+  if command -v "$(tool_path EDA_TOOL_PODMAN podman)" >/dev/null 2>&1; then
+    engine="$(tool_path EDA_TOOL_PODMAN podman)"
+  elif command -v "$(tool_path EDA_TOOL_DOCKER docker)" >/dev/null 2>&1; then
+    engine="$(tool_path EDA_TOOL_DOCKER docker)"
   else
     printf 'ERROR: neither podman nor docker is available\n' >&2
     exit 1
   fi
+fi
+if [[ "${engine}" == "podman" ]]; then
+  engine="$(tool_path EDA_TOOL_PODMAN podman)"
+elif [[ "${engine}" == "docker" ]]; then
+  engine="$(tool_path EDA_TOOL_DOCKER docker)"
 fi
 command -v "${engine}" >/dev/null 2>&1 || {
   printf 'ERROR: container engine is unavailable: %s\n' "${engine}" >&2

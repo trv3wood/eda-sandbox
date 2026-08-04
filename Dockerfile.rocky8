@@ -197,6 +197,9 @@ RUN chmod 0755 /opt/eda-sandbox/scripts/regress*.sh && \
     stat -c 'regress script: %A (%a) %n' /opt/eda-sandbox/scripts/regress.sh
 
 ENV EDA_SCC_HOME=/opt/eda-scc-sdk \
+    EDA_TOOL_CMAKE=/usr/bin/cmake \
+    EDA_TOOL_CXX=/usr/bin/c++ \
+    EDA_TOOL_CTEST=/usr/bin/ctest \
     CMAKE_PREFIX_PATH=/opt/eda-scc-sdk/scc:/opt/eda-scc-sdk/deps/build/Release/generators:/opt/eda-scc-sdk/deps \
     CMAKE_MODULE_PATH=/opt/eda-scc-sdk/deps/build/Release/generators \
     LD_LIBRARY_PATH=/opt/eda-scc-sdk/scc/lib:/opt/eda-scc-sdk/scc/lib64:/opt/eda-scc-sdk/deps/lib:/opt/eda-scc-sdk/deps/lib64 \

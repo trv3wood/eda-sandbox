@@ -49,6 +49,10 @@ COPY scripts/regress*.sh /opt/systemc-agent/scripts/
 RUN /opt/conda/envs/uhdm/bin/python -m pip install --no-deps /opt/systemc-agent
 ENV MAMBA_ROOT_PREFIX=/opt/conda \
     PATH=/opt/conda/envs/uhdm/bin:/usr/local/bin:/usr/bin \
+    EDA_TOOL_SURELOG=/opt/conda/envs/uhdm/bin/surelog \
+    EDA_TOOL_UHDM_LINT=/opt/conda/envs/uhdm/bin/uhdm-lint \
+    EDA_TOOL_UHDM_HIER=/opt/conda/envs/uhdm/bin/uhdm-hier \
+    EDA_TOOL_UHDM=/opt/conda/envs/uhdm/bin/eda-uhdm \
     LD_LIBRARY_PATH=/opt/conda/envs/uhdm/lib \
     IMAGE_REVISION=${IMAGE_REVISION}
 RUN python3 -c "import uhdm; print(uhdm.Serializer)"
@@ -149,6 +153,12 @@ COPY src /opt/systemc-agent/src
 COPY scripts/regress*.sh /opt/systemc-agent/scripts/
 RUN python3 -m pip install --break-system-packages --no-cache-dir /opt/systemc-agent
 ENV PATH=/opt/scc/bin:/usr/local/bin:/usr/bin \
+    EDA_TOOL_CMAKE=/usr/bin/cmake \
+    EDA_TOOL_CXX=/usr/bin/c++ \
+    EDA_TOOL_CTEST=/usr/bin/ctest \
+    EDA_TOOL_NINJA=/usr/bin/ninja \
+    EDA_SCC_HOME=/opt/scc \
+    EDA_SCC_DEPS=/opt/scc-deps \
     CMAKE_PREFIX_PATH=/opt/scc:/opt/scc-deps \
     LD_LIBRARY_PATH=/opt/scc/lib:/opt/scc-deps/lib \
     IMAGE_REVISION=${IMAGE_REVISION}
