@@ -45,10 +45,14 @@ ARG IMAGE_REVISION=unknown
 COPY --from=uhdm-python-builder /opt/conda/envs/uhdm /opt/conda/envs/uhdm
 COPY pyproject.toml /opt/systemc-agent/
 COPY src /opt/systemc-agent/src
-COPY scripts/regress.sh /opt/systemc-agent/scripts/regress.sh
+COPY scripts/regress*.sh /opt/systemc-agent/scripts/
 RUN /opt/conda/envs/uhdm/bin/python -m pip install --no-deps /opt/systemc-agent
 ENV MAMBA_ROOT_PREFIX=/opt/conda \
     PATH=/opt/conda/envs/uhdm/bin:/usr/local/bin:/usr/bin \
+    EDA_TOOL_SURELOG=/opt/conda/envs/uhdm/bin/surelog \
+    EDA_TOOL_UHDM_LINT=/opt/conda/envs/uhdm/bin/uhdm-lint \
+    EDA_TOOL_UHDM_HIER=/opt/conda/envs/uhdm/bin/uhdm-hier \
+    EDA_TOOL_UHDM=/opt/conda/envs/uhdm/bin/eda-uhdm \
     LD_LIBRARY_PATH=/opt/conda/envs/uhdm/lib \
     IMAGE_REVISION=${IMAGE_REVISION}
 RUN python3 -c "import uhdm; print(uhdm.Serializer)"
@@ -119,6 +123,133 @@ RUN set -eu; \
     fi; \
     echo "SCC install: ${systemc_build_dir} -> /opt/scc-deps" >&2; \
     cmake --install "${systemc_build_dir}" --prefix /opt/scc-deps
+# Conan full_deploy 只部署这些包的头文件和静态库，但 SCC/lwtr 的导出
+# 要求 CMake Config。为全部公开依赖生成可重定位兼容包，避免逐个补洞。
+RUN set -eu; \
+    for required_file in \
+        include/lz4.h \
+        include/fmt/format.h \
+        include/spdlog/spdlog.h \
+        include/yaml-cpp/yaml.h \
+        include/backtrace.h \
+        include/lzma.h \
+        include/zlib.h \
+        include/zstd.h \
+        lib/liblz4.a \
+        lib/libfmt.a \
+        lib/libspdlog.a \
+        lib/libyaml-cpp.a \
+        lib/libbacktrace.a \
+        lib/liblzma.a \
+        lib/libz.a \
+        lib/libzstd.a; do \
+        test -f "/opt/scc-deps/${required_file}" || { \
+            echo "ERROR: missing deployed dependency file: ${required_file}" >&2; \
+            exit 1; \
+        }; \
+    done; \
+    mkdir -p \
+        /opt/scc-deps/lib/cmake/lz4 \
+        /opt/scc-deps/lib/cmake/fmt \
+        /opt/scc-deps/lib/cmake/spdlog \
+        /opt/scc-deps/lib/cmake/yaml-cpp \
+        /opt/scc-deps/lib/cmake/libbacktrace \
+        /opt/scc-deps/lib/cmake/zstd; \
+    printf '%s\n' \
+        'get_filename_component(_lz4_prefix "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)' \
+        'if(NOT TARGET LZ4::lz4_static)' \
+        '  add_library(LZ4::lz4_static STATIC IMPORTED)' \
+        '  set_target_properties(LZ4::lz4_static PROPERTIES' \
+        '    IMPORTED_LOCATION "${_lz4_prefix}/lib/liblz4.a"' \
+        '    INTERFACE_INCLUDE_DIRECTORIES "${_lz4_prefix}/include")' \
+        'endif()' \
+        'if(NOT TARGET lz4::lz4)' \
+        '  add_library(lz4::lz4 INTERFACE IMPORTED)' \
+        '  set_target_properties(lz4::lz4 PROPERTIES' \
+        '    INTERFACE_LINK_LIBRARIES LZ4::lz4_static)' \
+        'endif()' \
+        'unset(_lz4_prefix)' \
+        > /opt/scc-deps/lib/cmake/lz4/lz4-config.cmake; \
+    printf '%s\n' \
+        'get_filename_component(_fmt_prefix "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)' \
+        'if(NOT TARGET fmt::fmt)' \
+        '  add_library(fmt::fmt STATIC IMPORTED)' \
+        '  set_target_properties(fmt::fmt PROPERTIES' \
+        '    IMPORTED_LOCATION "${_fmt_prefix}/lib/libfmt.a"' \
+        '    INTERFACE_INCLUDE_DIRECTORIES "${_fmt_prefix}/include")' \
+        'endif()' \
+        'if(NOT TARGET fmt::fmt-header-only)' \
+        '  add_library(fmt::fmt-header-only INTERFACE IMPORTED)' \
+        '  set_target_properties(fmt::fmt-header-only PROPERTIES' \
+        '    INTERFACE_INCLUDE_DIRECTORIES "${_fmt_prefix}/include")' \
+        'endif()' \
+        'unset(_fmt_prefix)' \
+        > /opt/scc-deps/lib/cmake/fmt/fmt-config.cmake; \
+    printf '%s\n' \
+        'include(CMakeFindDependencyMacro)' \
+        'find_dependency(fmt CONFIG REQUIRED)' \
+        'get_filename_component(_spdlog_prefix "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)' \
+        'if(NOT TARGET spdlog::spdlog)' \
+        '  add_library(spdlog::spdlog STATIC IMPORTED)' \
+        '  set_target_properties(spdlog::spdlog PROPERTIES' \
+        '    IMPORTED_LOCATION "${_spdlog_prefix}/lib/libspdlog.a"' \
+        '    INTERFACE_INCLUDE_DIRECTORIES "${_spdlog_prefix}/include"' \
+        '    INTERFACE_COMPILE_DEFINITIONS "SPDLOG_COMPILED_LIB;SPDLOG_FMT_EXTERNAL"' \
+        '    INTERFACE_LINK_LIBRARIES fmt::fmt)' \
+        'endif()' \
+        'if(NOT TARGET spdlog::spdlog_header_only)' \
+        '  add_library(spdlog::spdlog_header_only INTERFACE IMPORTED)' \
+        '  set_target_properties(spdlog::spdlog_header_only PROPERTIES' \
+        '    INTERFACE_INCLUDE_DIRECTORIES "${_spdlog_prefix}/include"' \
+        '    INTERFACE_LINK_LIBRARIES fmt::fmt)' \
+        'endif()' \
+        'unset(_spdlog_prefix)' \
+        > /opt/scc-deps/lib/cmake/spdlog/spdlog-config.cmake; \
+    printf '%s\n' \
+        'get_filename_component(_yaml_cpp_prefix "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)' \
+        'if(NOT TARGET yaml-cpp::yaml-cpp)' \
+        '  add_library(yaml-cpp::yaml-cpp STATIC IMPORTED)' \
+        '  set_target_properties(yaml-cpp::yaml-cpp PROPERTIES' \
+        '    IMPORTED_LOCATION "${_yaml_cpp_prefix}/lib/libyaml-cpp.a"' \
+        '    INTERFACE_INCLUDE_DIRECTORIES "${_yaml_cpp_prefix}/include")' \
+        'endif()' \
+        'unset(_yaml_cpp_prefix)' \
+        > /opt/scc-deps/lib/cmake/yaml-cpp/yaml-cpp-config.cmake; \
+    printf '%s\n' \
+        'get_filename_component(_libbacktrace_prefix "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)' \
+        'if(NOT TARGET libbacktrace::libbacktrace)' \
+        '  add_library(libbacktrace::libbacktrace STATIC IMPORTED)' \
+        '  set_target_properties(libbacktrace::libbacktrace PROPERTIES' \
+        '    IMPORTED_LOCATION "${_libbacktrace_prefix}/lib/libbacktrace.a"' \
+        '    INTERFACE_INCLUDE_DIRECTORIES "${_libbacktrace_prefix}/include"' \
+        '    INTERFACE_LINK_LIBRARIES "${CMAKE_DL_LIBS}")' \
+        'endif()' \
+        'unset(_libbacktrace_prefix)' \
+        > /opt/scc-deps/lib/cmake/libbacktrace/libbacktrace-config.cmake; \
+    printf '%s\n' \
+        'get_filename_component(_zstd_prefix "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)' \
+        'if(NOT TARGET zstd::libzstd_static)' \
+        '  add_library(zstd::libzstd_static STATIC IMPORTED)' \
+        '  set_target_properties(zstd::libzstd_static PROPERTIES' \
+        '    IMPORTED_LOCATION "${_zstd_prefix}/lib/libzstd.a"' \
+        '    INTERFACE_INCLUDE_DIRECTORIES "${_zstd_prefix}/include")' \
+        'endif()' \
+        'unset(_zstd_prefix)' \
+        > /opt/scc-deps/lib/cmake/zstd/zstd-config.cmake; \
+    echo "SCC install: generated relocatable dependency configs"; \
+    find /opt/scc-deps/lib/cmake -maxdepth 2 -type f \
+        \( -name '*-config.cmake' -o -name '*Config.cmake' \) -print | sort
+# SCC 2026.05 的导出 target 公开引用了 BZip2、ZLIB、LibLZMA、zstd 和
+# Boost stacktrace，但 scc-config.cmake 漏掉了这些依赖与 libbacktrace 传递链接。
+RUN set -eu; \
+    scc_config=/opt/scc/lib/cmake/scc/scc-config.cmake; \
+    test -f "${scc_config}"; \
+    grep -nF 'find_dependency(Boost COMPONENTS date_time filesystem)' "${scc_config}"; \
+    sed -i \
+        's/find_dependency(Boost COMPONENTS date_time filesystem)/find_dependency(BZip2 REQUIRED)\nfind_dependency(ZLIB REQUIRED)\nfind_dependency(LibLZMA REQUIRED)\nfind_dependency(libbacktrace CONFIG REQUIRED)\nfind_dependency(zstd CONFIG REQUIRED)\nfind_dependency(Boost COMPONENTS date_time filesystem stacktrace_backtrace)\nset_property(TARGET Boost::stacktrace_backtrace APPEND PROPERTY INTERFACE_LINK_LIBRARIES libbacktrace::libbacktrace)/' \
+        "${scc_config}"; \
+    echo "SCC install: patched exported dependency closure"; \
+    grep -nE 'BZip2|ZLIB|LibLZMA|libbacktrace|zstd|Boost.*stacktrace' "${scc_config}"
 RUN set -eu; \
     echo "SCC verify: checking SystemCLanguage CMake export" >&2; \
     for required_file in \
@@ -146,12 +277,24 @@ COPY --from=scc-builder /opt/scc /opt/scc
 COPY --from=scc-builder /opt/scc-deps /opt/scc-deps
 COPY pyproject.toml /opt/systemc-agent/
 COPY src /opt/systemc-agent/src
-COPY scripts/regress.sh /opt/systemc-agent/scripts/regress.sh
+COPY scripts/regress*.sh /opt/systemc-agent/scripts/
 RUN python3 -m pip install --break-system-packages --no-cache-dir /opt/systemc-agent
 ENV PATH=/opt/scc/bin:/usr/local/bin:/usr/bin \
+    EDA_TOOL_CMAKE=/usr/bin/cmake \
+    EDA_TOOL_CXX=/usr/bin/c++ \
+    EDA_TOOL_CTEST=/usr/bin/ctest \
+    EDA_TOOL_NINJA=/usr/bin/ninja \
+    EDA_SCC_HOME=/opt/scc \
+    EDA_SCC_DEPS=/opt/scc-deps \
     CMAKE_PREFIX_PATH=/opt/scc:/opt/scc-deps \
     LD_LIBRARY_PATH=/opt/scc/lib:/opt/scc-deps/lib \
     IMAGE_REVISION=${IMAGE_REVISION}
 RUN test -f \
-    /opt/scc-deps/lib/cmake/SystemCLanguage/SystemCLanguageConfig.cmake
+    /opt/scc-deps/lib/cmake/SystemCLanguage/SystemCLanguageConfig.cmake && \
+    test -f /opt/scc-deps/lib/cmake/lz4/lz4-config.cmake && \
+    test -f /opt/scc-deps/lib/cmake/fmt/fmt-config.cmake && \
+    test -f /opt/scc-deps/lib/cmake/spdlog/spdlog-config.cmake && \
+    test -f /opt/scc-deps/lib/cmake/yaml-cpp/yaml-cpp-config.cmake && \
+    test -f /opt/scc-deps/lib/cmake/libbacktrace/libbacktrace-config.cmake && \
+    test -f /opt/scc-deps/lib/cmake/zstd/zstd-config.cmake
 CMD ["/bin/bash"]

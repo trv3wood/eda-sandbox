@@ -5,6 +5,7 @@ on:
     paths:
       - Dockerfile.rocky8
       - scripts/regress.sh
+      - scripts/regress-*.sh
       - .github/workflows/rocky8-image.yml
   push:
     branches: [main]

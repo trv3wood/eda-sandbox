@@ -2,8 +2,15 @@ name: SCC container image
 
 on:
   push:
+    branches: [dev]
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      cmake_debug_packages:
+        description: "传给回归脚本的 CMake --debug-find-pkg 包名（可选）"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -11,6 +18,10 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
+
+concurrency:
+  group: scc-image-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   scc:
@@ -34,6 +45,17 @@ jobs:
           platforms: linux/amd64
           cache-from: type=gha,scope=eda-scc-compile
           cache-to: type=gha,mode=max,scope=eda-scc-compile
+      - name: Warm SCC SDK assembly cache
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.ubuntu
+          target: scc-builder
+          platforms: linux/amd64
+          cache-from: |
+            type=gha,scope=eda-scc-compile
+            type=gha,scope=eda-scc-sdk
+          cache-to: type=gha,mode=max,scope=eda-scc-sdk
       - uses: docker/build-push-action@v6
         with:
           context: .
@@ -45,11 +67,40 @@ jobs:
           load: true
           cache-from: |
             type=gha,scope=eda-scc-compile
+            type=gha,scope=eda-scc-sdk
             type=gha,scope=eda-scc
           cache-to: type=gha,mode=max,scope=eda-scc
       - name: Smoke test and size gate
         run: |
-          docker run --rm "$IMAGE" bash /opt/systemc-agent/scripts/regress.sh scc
+          docker run --rm \
+            -e EDA_SCC_CMAKE_DEBUG_PACKAGES="${{ inputs.cmake_debug_packages || '' }}" \
+            "$IMAGE" bash -lc '
+            set -Eeuo pipefail
+            echo "=== SCC SDK Boost inventory ==="
+            find /opt/scc-deps -type f \
+              \( -name "libboost_*.a" -o -name "libboost_*.so*" \) -printf "%p\n" | sort
+            echo "=== Relocatable dependency configs ==="
+            for config in \
+              /opt/scc-deps/lib/cmake/lz4/lz4-config.cmake \
+              /opt/scc-deps/lib/cmake/fmt/fmt-config.cmake \
+              /opt/scc-deps/lib/cmake/spdlog/spdlog-config.cmake \
+              /opt/scc-deps/lib/cmake/yaml-cpp/yaml-cpp-config.cmake \
+              /opt/scc-deps/lib/cmake/libbacktrace/libbacktrace-config.cmake \
+              /opt/scc-deps/lib/cmake/zstd/zstd-config.cmake; do
+              echo "--- $config"
+              sed -n "1,160p" "$config"
+            done
+            echo "=== SCC exported dependencies ==="
+            grep -n "find_dependency" /opt/scc/lib/cmake/scc/scc-config.cmake || true
+            echo "=== SCC exported target link interfaces ==="
+            grep -R -n "INTERFACE_LINK_LIBRARIES" \
+              /opt/scc/lib/cmake/scc \
+              /opt/scc/lib/cmake/lwtr \
+              /opt/scc/lib/cmake/fstapi 2>/dev/null || true
+          '
+          docker run --rm \
+            -e EDA_SCC_CMAKE_DEBUG_PACKAGES="${{ inputs.cmake_debug_packages || '' }}" \
+            "$IMAGE" bash /opt/systemc-agent/scripts/regress.sh scc
           bytes="$(docker image inspect "$IMAGE" --format '{{.Size}}')"
           test "$bytes" -le "$((2 * 1024 * 1024 * 1024))"
           docker push "$IMAGE"

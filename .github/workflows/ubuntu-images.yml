@@ -9,6 +9,7 @@ on:
       - pyproject.toml
       - src/**
       - scripts/regress.sh
+      - scripts/regress-*.sh
       - .github/workflows/ubuntu-images.yml
   push:
     branches: [main]

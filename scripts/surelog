@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-exec /opt/conda/envs/surelog/bin/surelog "$@"
+if [[ -z "${EDA_TOOL_SURELOG:-}" ]]; then
+  printf 'ERROR: set EDA_TOOL_SURELOG to the Surelog binary path\n' >&2
+  exit 1
+fi
+exec "${EDA_TOOL_SURELOG}" "$@"

@@ -16,6 +16,7 @@ from .io import (
     relative_to_project, resolve_filelist_inputs, resolve_inputs,
     RTL_SOURCE_SUFFIXES,
 )
+from .toolchain import tool_command
 from .uhdm_export import export_uhdm_structure
 from .graph.finalize import finalize_graph
 
@@ -326,7 +327,7 @@ def produce_uhdm(project: Path) -> dict[str, Any]:
     work.mkdir(parents=True, exist_ok=True)
     top = manifest.get("reference_top") or manifest.get("target_top") or manifest.get("top")
     command = [
-        "surelog",
+        *tool_command("EDA_TOOL_SURELOG", "surelog"),
         *(item for path in inputs.filelists for item in ("-f", str(path))),
         *(str(path) for path in inputs.sources),
         *(f"-I{path}" for path in inputs.include_dirs),
@@ -358,12 +359,12 @@ def produce_uhdm(project: Path) -> dict[str, Any]:
         }
     if uhdm_elab.get("status") == "passed":
         uhdm_lint = _validated_cli(
-            ["uhdm-lint", str(database)],
+            [*tool_command("EDA_TOOL_UHDM_LINT", "uhdm-lint"), str(database)],
             project,
             paths["tools"] / "uhdm-lint.log",
         )
         uhdm_hier = _validated_cli(
-            ["uhdm-hier", str(database), "--line"],
+            [*tool_command("EDA_TOOL_UHDM_HIER", "uhdm-hier"), str(database), "--line"],
             project,
             paths["tools"] / "uhdm-hier.log",
             markers=("Design name:", "Instance tree:"),
@@ -422,8 +423,8 @@ def produce_uhdm(project: Path) -> dict[str, Any]:
         },
         inputs.audit_inputs,
         {
-            "surelog": _version(["surelog", "-version"]),
-            "uhdm_binding": _version(["eda-uhdm", "version"]),
+            "surelog": _version([*tool_command("EDA_TOOL_SURELOG", "surelog"), "-version"]),
+            "uhdm_binding": _version([*tool_command("EDA_TOOL_UHDM", "eda-uhdm"), "version"]),
         },
         compile_inputs=inputs,
     )
@@ -437,7 +438,7 @@ def _vcs_home() -> Path:
     if configured:
         root = Path(configured).resolve()
     else:
-        executable = shutil.which("vcs")
+        executable = shutil.which(tool_command("EDA_TOOL_VCS", "vcs")[0])
         if not executable:
             raise RuntimeError("VCS is unavailable; configure the研发网 VCS environment")
         root = Path(executable).resolve().parent.parent
@@ -605,7 +606,7 @@ def produce_vcs(project: Path) -> dict[str, Any]:
         or manifest.get("top")
     )
     vcs_home = _vcs_home()
-    compiler = shutil.which("cc")
+    compiler = shutil.which(tool_command("EDA_TOOL_CC", "cc")[0])
     if not compiler:
         raise RuntimeError("C compiler cc is unavailable for the VCS VPI exporter")
     source = Path(__file__).with_name("vcs_vpi_export.c")
@@ -641,7 +642,7 @@ def produce_vcs(project: Path) -> dict[str, Any]:
     if compile_plugin.get("status") == "passed" and library.is_file():
         vcs = _run(
             [
-                "vcs",
+                *tool_command("EDA_TOOL_VCS", "vcs"),
                 "-full64",
                 "-sverilog",
                 *(
@@ -739,7 +740,7 @@ def produce_vcs(project: Path) -> dict[str, Any]:
         },
         inputs.audit_inputs,
         {
-            "vcs": _version(["vcs", "-ID"]),
+            "vcs": _version([*tool_command("EDA_TOOL_VCS", "vcs"), "-ID"]),
             "cc": _version([compiler, "--version"]),
         },
         compile_inputs=inputs,

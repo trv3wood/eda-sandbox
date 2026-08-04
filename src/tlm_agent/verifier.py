@@ -10,6 +10,7 @@ from typing import Any
 import json
 
 from .io import dump_json, load_yaml, project_paths
+from .toolchain import tool_command
 
 
 def _execute(command: list[str], cwd: Path) -> dict[str, Any]:
@@ -45,8 +46,11 @@ def verify_project(project_dir: Path, *, backend: str = "auto") -> dict[str, Any
     if selected == "auto":
         # 本机显式激活可解压 SCC SDK 后优先本地验证；否则保持容器后端。
         selected = "local" if all(
-            shutil.which(tool) for tool in ("cmake", "c++")
-        ) and ("EDA_SCC_HOME" in os.environ or Path("/opt/scc").exists()) else "podman"
+            shutil.which(tool) for tool in (
+                tool_command("EDA_TOOL_CMAKE", "cmake")[0],
+                tool_command("EDA_TOOL_CXX", "c++")[0],
+            )
+        ) and "EDA_SCC_HOME" in os.environ else "podman"
 
     if selected == "podman":
         repo_root = _find_repo_root(project_dir.resolve())
@@ -58,7 +62,7 @@ def verify_project(project_dir: Path, *, backend: str = "auto") -> dict[str, Any
             "PYTHONPATH=/workspace/src python3 -m tlm_agent.cli "
             "verify . --backend local"
         )
-        provider = shutil.which("podman-compose")
+        provider = shutil.which(tool_command("EDA_TOOL_PODMAN_COMPOSE", "podman-compose")[0])
         if provider:
             command = [
                 provider,
@@ -76,7 +80,7 @@ def verify_project(project_dir: Path, *, backend: str = "auto") -> dict[str, Any
             ]
         else:
             command = [
-                "podman",
+                *tool_command("EDA_TOOL_PODMAN", "podman"),
                 "compose",
                 "-f",
                 str(repo_root / "compose.yaml"),
@@ -95,24 +99,27 @@ def verify_project(project_dir: Path, *, backend: str = "auto") -> dict[str, Any
 
     build_dir = paths["model"] / "build"
     configure_command = [
-        "cmake",
+        *tool_command("EDA_TOOL_CMAKE", "cmake"),
         "-S",
         str(paths["model"]),
         "-B",
         str(build_dir),
     ]
-    if shutil.which("ninja"):
+    configured_cxx = os.environ.get("EDA_TOOL_CXX")
+    if configured_cxx:
+        configure_command.append(f"-DCMAKE_CXX_COMPILER={configured_cxx}")
+    if shutil.which(tool_command("EDA_TOOL_NINJA", "ninja")[0]):
         configure_command.extend(["-G", "Ninja"])
     # 离线 SDK 内的 Conan 依赖按 Release 配置归档。
     configure_command.append("-DCMAKE_BUILD_TYPE=Release")
     configure = _execute(configure_command, project_dir)
     build = (
-        _execute(["cmake", "--build", str(build_dir), "--parallel"], project_dir)
+        _execute([*tool_command("EDA_TOOL_CMAKE", "cmake"), "--build", str(build_dir), "--parallel"], project_dir)
         if configure["returncode"] == 0
         else {"status": "skipped", "returncode": 1, "output": ""}
     )
     discovery = (
-        _execute(["ctest", "--test-dir", str(build_dir), "--show-only=json-v1"], project_dir)
+        _execute([*tool_command("EDA_TOOL_CTEST", "ctest"), "--test-dir", str(build_dir), "--show-only=json-v1"], project_dir)
         if build["returncode"] == 0
         else {"status": "skipped", "returncode": 1, "output": ""}
     )
@@ -133,7 +140,7 @@ def verify_project(project_dir: Path, *, backend: str = "auto") -> dict[str, Any
     contract_tests = (
         _execute(
             [
-                "ctest", "--test-dir", str(build_dir), "--output-on-failure",
+                *tool_command("EDA_TOOL_CTEST", "ctest"), "--test-dir", str(build_dir), "--output-on-failure",
                 "-R", "^contract::",
             ],
             project_dir,
@@ -146,10 +153,11 @@ def verify_project(project_dir: Path, *, backend: str = "auto") -> dict[str, Any
             "missing": missing_tests,
         }
     )
+    
     smoke_tests = (
         _execute(
             [
-                "ctest", "--test-dir", str(build_dir), "--output-on-failure",
+                *tool_command("EDA_TOOL_CTEST", "ctest"), "--test-dir", str(build_dir), "--output-on-failure",
                 "-R", "^model_smoke$",
             ],
             project_dir,
