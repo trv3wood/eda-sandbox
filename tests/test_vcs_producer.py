@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from tlm_agent.extractors import extract_project
 from tlm_agent.io import dump_yaml, load_json, load_yaml, project_paths
+from tlm_agent.graph.rtl_graph import structure_to_graph
 from tlm_agent.tool_producers import (
     _compile_inputs,
     _normalize_vcs_structure,
@@ -274,6 +275,45 @@ class VcsProducerTest(unittest.TestCase):
                     reference_top="missing",
                     executable=executable,
                 )
+
+    def test_generate_scope_instances_keep_distinct_hierarchies(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project, rtl = self._project(Path(temporary))
+            raw = self._raw(rtl)
+            raw["top_modules"][0]["instances"] = [
+                {
+                    **raw["top_modules"][0]["instances"][0],
+                    "hierarchy": "top.genblk[0].u_child",
+                },
+                {
+                    **raw["top_modules"][0]["instances"][0],
+                    "hierarchy": "top.genblk[1].u_child",
+                },
+            ]
+            executable = project / "simv"
+            executable.write_bytes(b"simv")
+            structure = _normalize_vcs_structure(
+                raw, reference_top="top", executable=executable
+            )
+            entities, _, _ = structure_to_graph(structure, project, [rtl])
+            instances = [item for item in entities if item["type"] == "Instance"]
+            self.assertEqual(len({item["id"] for item in instances}), 3)
+            self.assertEqual(
+                {item["properties"]["path"] for item in instances},
+                {"top", "top.genblk[0].u_child", "top.genblk[1].u_child"},
+            )
+
+    def test_graph_source_digests_are_cached_per_build(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project, rtl = self._project(Path(temporary))
+            executable = project / "simv"
+            executable.write_bytes(b"simv")
+            structure = _normalize_vcs_structure(
+                self._raw(rtl), reference_top="top", executable=executable
+            )
+            with patch("tlm_agent.graph.rtl_graph.file_digest", return_value="digest") as digest:
+                structure_to_graph(structure, project, [rtl])
+            self.assertEqual(digest.call_count, 1)
 
 
 if __name__ == "__main__":

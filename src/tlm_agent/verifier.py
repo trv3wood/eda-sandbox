@@ -31,7 +31,10 @@ def _execute(command: list[str], cwd: Path) -> dict[str, Any]:
 
 
 def _find_repo_root(project_dir: Path) -> Path | None:
-    for candidate in (project_dir, *project_dir.parents):
+    # 项目可以位于仓库外；此时仍使用安装该包的仓库 compose 文件，并将
+    # 项目作为额外卷挂载到容器。
+    package_root = Path(__file__).resolve().parents[2]
+    for candidate in (project_dir, *project_dir.parents, package_root):
         if (candidate / "compose.yaml").exists():
             return candidate
     return None
@@ -56,9 +59,15 @@ def verify_project(project_dir: Path, *, backend: str = "auto") -> dict[str, Any
         repo_root = _find_repo_root(project_dir.resolve())
         if repo_root is None:
             raise RuntimeError("cannot locate compose.yaml for podman backend")
-        relative_project = project_dir.resolve().relative_to(repo_root)
+        resolved_project = project_dir.resolve()
+        try:
+            project_in_repo = Path("/workspace") / resolved_project.relative_to(repo_root)
+            project_volume: list[str] = []
+        except ValueError:
+            project_in_repo = Path("/project")
+            project_volume = ["--volume", f"{resolved_project}:/project"]
         inner = (
-            f"cd {shlex.quote(str(Path('/workspace') / relative_project))} && "
+            f"cd {shlex.quote(str(project_in_repo))} && "
             "PYTHONPATH=/workspace/src python3 -m tlm_agent.cli "
             "verify . --backend local"
         )
@@ -71,6 +80,7 @@ def verify_project(project_dir: Path, *, backend: str = "auto") -> dict[str, Any
                 "run",
                 "--rm",
                 "-T",
+                *project_volume,
                 # This service name is repository integration policy and is
                 # therefore the main container-related hard-coded value.
                 "eda-scc",
@@ -87,6 +97,7 @@ def verify_project(project_dir: Path, *, backend: str = "auto") -> dict[str, Any
                 "run",
                 "--rm",
                 "-T",
+                *project_volume,
                 "eda-scc",
                 "bash",
                 "-lc",
@@ -108,6 +119,11 @@ def verify_project(project_dir: Path, *, backend: str = "auto") -> dict[str, Any
     configured_cxx = os.environ.get("EDA_TOOL_CXX")
     if configured_cxx:
         configure_command.append(f"-DCMAKE_CXX_COMPILER={configured_cxx}")
+    configured_standard = os.environ.get("EDA_CXX_STANDARD")
+    if configured_standard:
+        if configured_standard not in {"14", "17"}:
+            raise ValueError("EDA_CXX_STANDARD must be 14 or 17")
+        configure_command.append(f"-DMODEL_CXX_STANDARD={configured_standard}")
     if shutil.which(tool_command("EDA_TOOL_NINJA", "ninja")[0]):
         configure_command.extend(["-G", "Ninja"])
     # 离线 SDK 内的 Conan 依赖按 Release 配置归档。

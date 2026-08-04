@@ -438,6 +438,10 @@ int sc_main(int, char**) {
                 (paths["model"] / "CMakeLists.txt").read_text(),
             )
             self.assertIn(
+                "set(MODEL_CXX_STANDARD 14 CACHE STRING",
+                (paths["model"] / "CMakeLists.txt").read_text(),
+            )
+            self.assertIn(
                 "Set CMAKE_PREFIX_PATH or SYSTEMC_HOME.",
                 (paths["model"] / "CMakeLists.txt").read_text(),
             )

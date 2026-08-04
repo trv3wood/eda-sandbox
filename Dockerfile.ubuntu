@@ -203,6 +203,7 @@ ENV PATH=/opt/scc/bin:/usr/local/bin:/usr/bin \
     EDA_TOOL_CXX=/usr/bin/c++ \
     EDA_TOOL_CTEST=/usr/bin/ctest \
     EDA_TOOL_NINJA=/usr/bin/ninja \
+    EDA_CXX_STANDARD=17 \
     EDA_SCC_HOME=/opt/scc \
     EDA_SCC_DEPS=/opt/scc-deps \
     CMAKE_PREFIX_PATH=/opt/scc:/opt/scc-deps/build/Release/generators:/opt/scc-deps \

@@ -506,6 +506,9 @@ def _normalize_vcs_structure(
         if not isinstance(name, str) or not name:
             raise ValueError("VCS VPI named object is missing a name")
         result: dict[str, Any] = {"name": name.rsplit(".", 1)[-1]}
+        hierarchy = item.get("hierarchy")
+        if isinstance(hierarchy, str) and hierarchy:
+            result["hierarchy"] = hierarchy
         path = item.get("path")
         if isinstance(path, str) and path:
             result["path"] = path

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from ..io import file_digest, relative_to_project
 from .schema import entity, relationship
@@ -23,15 +23,24 @@ def _records(value: object, field: str) -> list[dict[str, Any]]:
 
 
 def _source_ref(
-    record: dict[str, Any], project: Path, sources: list[Path]
+    record: dict[str, Any], project: Path, sources: list[Path],
+    source_digests: Mapping[Path, str] | None = None,
 ) -> list[dict[str, Any]]:
     path_text = record.get("path")
+    recorded_digest = record.get("sha256")
     source = next(
         (
             candidate for candidate in sources
             if str(candidate) == path_text
             or candidate.name == Path(str(path_text or "")).name
-            or record.get("sha256") == file_digest(candidate)
+            or (
+                isinstance(recorded_digest, str)
+                and recorded_digest == (
+                    source_digests[candidate]
+                    if source_digests is not None
+                    else file_digest(candidate)
+                )
+            )
         ),
         None,
     )
@@ -41,7 +50,11 @@ def _source_ref(
     locator = f"line:{line}" if isinstance(line, int) and line > 0 else "unknown"
     return [{
         "source_path": relative_to_project(project, source),
-        "source_digest": file_digest(source),
+        "source_digest": (
+            source_digests[source]
+            if source_digests is not None
+            else file_digest(source)
+        ),
         "locator": locator,
         **({"line": line} if isinstance(line, int) and line > 0 else {}),
     }]
@@ -70,6 +83,9 @@ def structure_to_graph(
 
     project = project.resolve()
     sources = sorted((path.resolve() for path in sources), key=str)
+    # 一次图构建内输入文件是已门禁的不可变快照；缓存摘要避免每个未匹配
+    # 的 VPI 记录重新读取所有源文件。
+    source_digests = {source: file_digest(source) for source in sources}
     provenance = {
         "extractor": f"{backend}-graph/1",
         "backend": backend,
@@ -85,7 +101,7 @@ def structure_to_graph(
     for source in sources:
         ref = {
             "source_path": relative_to_project(project, source),
-            "source_digest": file_digest(source),
+            "source_digest": source_digests[source],
             "locator": "file",
         }
         node = entity(
@@ -120,7 +136,7 @@ def structure_to_graph(
         existing = definitions.get(name)
         if existing is not None:
             return existing
-        refs = _source_ref(record, project, sources)
+        refs = _source_ref(record, project, sources, source_digests)
         node = entity(
             entity_type="Module", name=name,
             properties={"definition": str(raw_definition)}, source_refs=refs,
@@ -138,7 +154,7 @@ def structure_to_graph(
                 child_name = child.get("name")
                 if not isinstance(child_name, str) or not child_name:
                     raise ValueError(f"RTL {field} entry is missing a name")
-                child_refs = _source_ref(child, project, sources) or refs
+                child_refs = _source_ref(child, project, sources, source_digests) or refs
                 child_node = entity(
                     entity_type=entity_type, name=child_name,
                     properties=properties(child), source_refs=child_refs,
@@ -160,7 +176,7 @@ def structure_to_graph(
         name = _unqualified(package.get("name"))
         if not name or name in package_nodes:
             continue
-        refs = _source_ref(package, project, sources)
+        refs = _source_ref(package, project, sources, source_digests)
         node = entity(entity_type="Package", name=name, source_refs=refs,
                       provenance=provenance, identity={"kind": "Package", "name": name})
         package_nodes[name] = node
@@ -175,7 +191,7 @@ def structure_to_graph(
             if target is not None:
                 relationships.append(relationship(
                     relation_type="IMPORTS", source_id=module["id"], target_id=target["id"],
-                    source_refs=_source_ref(imported, project, sources), provenance=provenance,
+                    source_refs=_source_ref(imported, project, sources, source_digests), provenance=provenance,
                 ))
 
     def add_instance(record: dict[str, Any], parent: dict[str, Any] | None, is_top: bool) -> None:
@@ -183,8 +199,13 @@ def structure_to_graph(
         name = _unqualified(record.get("name") or record.get("definition"))
         if not name:
             raise ValueError("RTL elaborated module is missing a name")
-        refs = _source_ref(record, project, sources)
-        path = name if parent is None else f"{parent['properties']['path']}.{name}"
+        refs = _source_ref(record, project, sources, source_digests)
+        hierarchy = record.get("hierarchy")
+        path = (
+            hierarchy
+            if isinstance(hierarchy, str) and hierarchy
+            else name if parent is None else f"{parent['properties']['path']}.{name}"
+        )
         instance = entity(
             entity_type="Instance", name=name,
             properties={"path": path, "definition": definition["name"], "is_top": is_top},
