@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+script_path="$(realpath -- "${BASH_SOURCE[0]}")"
+skill_dir="$(cd -- "$(dirname -- "$script_path")/.." && pwd -P)"
+if [[ -n "${SYSTEMVERILOG_AGENT_ROOT:-}" ]]; then
+  repo_root="$(realpath -- "${SYSTEMVERILOG_AGENT_ROOT}")"
+else
+  repo_root="$(cd -- "$skill_dir/../.." && pwd -P)"
+fi
+
+if [[ -d "$repo_root/src/rtl_agent" ]]; then
+  export PYTHONPATH="$repo_root/src${PYTHONPATH:+:$PYTHONPATH}"
+fi
+
+exec python3 -m rtl_agent.cli "$@"
+

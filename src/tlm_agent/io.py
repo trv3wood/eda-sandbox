@@ -220,6 +220,7 @@ def relative_to_project(project_dir: Path, path: Path) -> str:
 def project_paths(project_dir: Path) -> dict[str, Path]:
     root = project_dir.resolve()
     state = root / ".systemc-agent"
+    rtl_state = state / "rtl"
     return {
         "root": root,
         "manifest": root / "manifest.yaml",
@@ -236,4 +237,16 @@ def project_paths(project_dir: Path) -> dict[str, Path]:
         "graph_manifest": state / "graph" / "manifest.json",
         "graph_entities": state / "graph" / "entities.jsonl",
         "graph_relationships": state / "graph" / "relationships.jsonl",
+        "rtl_handoff": state / "contracts" / "rtl-handoff.yaml",
+        "rtl_conflicts": state / "contracts" / "rtl-conflicts.yaml",
+        "rtl_approval": state / "contracts" / "rtl-approval.yaml",
+        "rtl_test_manifest": state / "contracts" / "rtl-testbench.yaml",
+        "rtl_state": rtl_state,
+        "rtl_source_index": rtl_state / "source-index.jsonl",
+        "rtl_worktree": rtl_state / "worktree",
+        "rtl_baseline": rtl_state / "baseline",
+        "rtl_edits": rtl_state / "edits.json",
+        "rtl_patch": rtl_state / "changes.diff",
+        "rtl_generation": rtl_state / "generation.yaml",
+        "rtl_verification": rtl_state / "verification.json",
     }
