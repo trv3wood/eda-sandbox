@@ -109,9 +109,11 @@ printf '%s\n' \
   'find_package(spdlog CONFIG REQUIRED)' \
   'find_package(yaml-cpp CONFIG REQUIRED)' \
   'find_package(BZip2 REQUIRED)' \
+  'find_package(ZLIB REQUIRED)' \
+  'find_package(LibLZMA REQUIRED)' \
   'find_package(libbacktrace CONFIG REQUIRED)' \
   'find_package(zstd CONFIG REQUIRED)' \
-  'foreach(dependency_target IN ITEMS LZ4::lz4_static lz4::lz4 fmt::fmt spdlog::spdlog yaml-cpp::yaml-cpp BZip2::BZip2 libbacktrace::libbacktrace zstd::libzstd_static)' \
+  'foreach(dependency_target IN ITEMS LZ4::lz4_static lz4::lz4 fmt::fmt spdlog::spdlog yaml-cpp::yaml-cpp BZip2::BZip2 ZLIB::ZLIB LibLZMA::LibLZMA libbacktrace::libbacktrace zstd::libzstd_static)' \
   '  if(NOT TARGET ${dependency_target})' \
   '    message(FATAL_ERROR "SDK dependency package did not export ${dependency_target}")' \
   '  endif()' \
