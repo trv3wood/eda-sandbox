@@ -73,6 +73,8 @@ RUN python3 -m venv /opt/conan && \
 RUN git clone --depth 1 --recurse-submodules --shallow-submodules \
         --branch "${SCC_VERSION}" \
         https://github.com/Minres/SystemC-Components.git /tmp/scc-src
+# Boost 1.89 的 Process 与宽字符 Serialization 没有对应静态库；SCC 的
+# 公开 CMake 依赖不使用这两个组件，安装时禁用以避免 CMakeDeps 导出失效 target。
 RUN cd /tmp/scc-src && \
     /opt/conan/bin/conan profile detect --force && \
     /opt/conan/bin/conan install . \
@@ -80,7 +82,8 @@ RUN cd /tmp/scc-src && \
         --deployer=full_deploy \
         --build=missing \
         -s build_type=Release \
-        -o 'boost/*:without_process=True'
+        -o 'boost/*:without_process=True' \
+        -o 'boost/*:without_serialization=True'
 RUN cd /tmp/scc-src && \
     cmake -S . -B /tmp/scc-build -G Ninja \
         -DCMAKE_TOOLCHAIN_FILE=/tmp/scc-conan/build/Release/generators/conan_toolchain.cmake \
@@ -129,9 +132,10 @@ RUN set -eu; \
         fi; \
         echo "SCC deploy: found ${required_path}" >&2; \
     done; \
-    echo "SCC deploy: checking Boost generator has no unavailable boost_process library"; \
-    if grep -R -n 'boost_process' /opt/scc-deps/build/Release/generators; then \
-        echo "ERROR: Boost CMake generator still references unavailable boost_process" >&2; \
+    echo "SCC deploy: checking Boost generator has no unavailable components"; \
+    if grep -R -n -E 'boost_(process|wserialization)' \
+        /opt/scc-deps/build/Release/generators; then \
+        echo "ERROR: Boost CMake generator still references an unavailable component" >&2; \
         exit 1; \
     fi
 RUN set -eu; \
