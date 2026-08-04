@@ -153,6 +153,7 @@ def verify_project(project_dir: Path, *, backend: str = "auto") -> dict[str, Any
             "missing": missing_tests,
         }
     )
+    
     smoke_tests = (
         _execute(
             [
