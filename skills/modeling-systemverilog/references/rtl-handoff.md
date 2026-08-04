@@ -4,7 +4,7 @@ Use `schema_version: 1` and `status: complete` before approval.
 
 Required sections:
 
-- `policy`: mode, `1800-2017` or `1800-2023`, and a non-empty unsupported list.
+- `policy`: mode, `1800-2017` or `1800-2023`, `review_gate: optional|required`, and a non-empty unsupported list.
 - `target`: canonical top and evidence IDs.
 - `module_contracts`: exact source-spelled imports, parameter/port/signal declarations, and optional hierarchy instances.
 - `requirements`: stable `RTL-*` IDs, precise statements, evidence IDs, and optional target module.
@@ -35,4 +35,3 @@ module_contracts:
 ```
 
 Do not derive source types from elaborated bit widths when typedefs, interfaces, unpacked dimensions, signedness, or parameter expressions are unavailable. Leave the handoff unresolved instead.
-

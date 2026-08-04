@@ -70,6 +70,26 @@ def _complete_interface_handoff(project: Path, evidence: str, *, mode: str = "in
 
 
 class RtlAgentTest(unittest.TestCase):
+    def test_optional_review_uses_checkpoint_and_required_review_blocks(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project, evidence = _project_with_spec(Path(temporary))
+            _complete_interface_handoff(project, evidence)
+            result = generate_rtl(project)
+            self.assertEqual(result["mode"], "interface")
+            paths = project_paths(project)
+            self.assertTrue(paths["rtl_checkpoint"].is_file())
+            self.assertFalse(paths["rtl_approval"].exists())
+
+        with tempfile.TemporaryDirectory() as temporary:
+            project, evidence = _project_with_spec(Path(temporary))
+            handoff = _complete_interface_handoff(project, evidence)
+            handoff["policy"]["review_gate"] = "required"
+            dump_yaml(project_paths(project)["rtl_handoff"], handoff)
+            with self.assertRaisesRegex(ValueError, "named RTL approval is required"):
+                generate_rtl(project)
+            approve_rtl(project, approver="unit-test")
+            self.assertEqual(generate_rtl(project)["mode"], "interface")
+
     def test_interface_generation_bounded_edit_and_stale_approval(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             project, evidence = _project_with_spec(Path(temporary))

@@ -66,6 +66,7 @@ def create_rtl_handoff_draft(
         "policy": {
             "mode": mode,
             "language_standard": "1800-2017",
+            "review_gate": "optional",
             "unsupported": [
                 "complete-project reverse printing",
                 "macro-expansion edits without a single writable source span",
@@ -131,6 +132,8 @@ def validate_rtl_handoff(project_dir: Path) -> list[str]:
         errors.append("rtl_handoff.policy.mode must be interface, hierarchy, or patch")
     if policy.get("language_standard") not in RTL_LANGUAGE_STANDARDS:
         errors.append("rtl_handoff.policy.language_standard is unsupported")
+    if policy.get("review_gate", "optional") not in {"optional", "required"}:
+        errors.append("rtl_handoff.policy.review_gate must be optional or required")
     if not isinstance(policy.get("unsupported"), list) or not policy["unsupported"]:
         errors.append("rtl_handoff.policy.unsupported must not be empty")
 
@@ -387,17 +390,77 @@ def rtl_approval_is_valid(project_dir: Path) -> tuple[bool, str]:
     return True, "RTL approval is valid"
 
 
+def _checkpoint_is_valid(project_dir: Path) -> tuple[bool, str]:
+    path = project_paths(project_dir)["rtl_checkpoint"]
+    if not path.is_file():
+        return False, "rtl-checkpoint.yaml is missing"
+    checkpoint = load_yaml(path)
+    try:
+        expected = object_digest(rtl_approval_payload(project_dir))
+    except (FileNotFoundError, ValueError) as exc:
+        return False, f"RTL checkpoint is stale: {exc}"
+    if checkpoint.get("status") != "checkpointed":
+        return False, "RTL checkpoint status is invalid"
+    if checkpoint.get("content_sha256") != expected:
+        return False, "RTL checkpoint is stale because inputs, graph, source index, or handoff changed"
+    errors = validate_rtl_handoff(project_dir)
+    if errors:
+        return False, f"RTL checkpoint gates fail: {errors[0]}"
+    return True, "automatic RTL checkpoint is valid"
+
+
+def rtl_gate_is_valid(project_dir: Path) -> tuple[bool, str]:
+    """检查人工审批或自动 checkpoint，required 策略只接受人工审批。"""
+    handoff_path = project_paths(project_dir)["rtl_handoff"]
+    if not handoff_path.is_file():
+        return False, "rtl-handoff.yaml is missing"
+    handoff = load_yaml(handoff_path)
+    review_gate = handoff.get("policy", {}).get("review_gate", "optional")
+    approved, approval_reason = rtl_approval_is_valid(project_dir)
+    if approved:
+        return True, approval_reason
+    if review_gate == "required":
+        return False, f"named RTL approval is required: {approval_reason}"
+    return _checkpoint_is_valid(project_dir)
+
+
+def ensure_rtl_gate(project_dir: Path) -> tuple[bool, str]:
+    """为 optional review 流程创建内容 checkpoint；不替代 required 审批。"""
+    valid, reason = rtl_gate_is_valid(project_dir)
+    if valid:
+        return valid, reason
+    paths = project_paths(project_dir)
+    handoff = load_yaml(paths["rtl_handoff"])
+    if handoff.get("policy", {}).get("review_gate", "optional") == "required":
+        return False, reason
+    errors = validate_rtl_handoff(project_dir)
+    if errors:
+        return False, "RTL checkpoint cannot be created: " + errors[0]
+    checkpoint = {
+        "schema_version": 1,
+        "status": "checkpointed",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "content_sha256": object_digest(rtl_approval_payload(project_dir)),
+    }
+    dump_yaml(paths["rtl_checkpoint"], checkpoint)
+    return True, "automatic RTL checkpoint created"
+
+
 def rtl_status(project_dir: Path) -> dict[str, Any]:
     paths = project_paths(project_dir)
-    valid, reason = rtl_approval_is_valid(project_dir)
+    valid, reason = rtl_gate_is_valid(project_dir)
+    approved, approval_reason = rtl_approval_is_valid(project_dir)
     return {
         "manifest": paths["manifest"].is_file(),
         "graph": paths["graph_manifest"].is_file(),
         "source_index": paths["rtl_source_index"].is_file(),
         "handoff": paths["rtl_handoff"].is_file(),
         "handoff_errors": validate_rtl_handoff(project_dir) if paths["rtl_handoff"].is_file() else [],
-        "approval": valid,
-        "approval_reason": reason,
+        "gate": valid,
+        "gate_reason": reason,
+        "named_approval": approved,
+        "named_approval_reason": approval_reason,
+        "checkpoint": paths["rtl_checkpoint"].is_file(),
         "generated": paths["rtl_generation"].is_file(),
         "verification": paths["rtl_verification"].is_file(),
     }

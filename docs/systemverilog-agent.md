@@ -34,11 +34,15 @@ scripts/systemverilog-agent extract PROJECT --skip-tools
 scripts/systemverilog-agent architect PROJECT --mode patch
 # 人工或 Agent 完成 .systemc-agent/contracts/rtl-handoff.yaml。
 scripts/systemverilog-agent architect PROJECT --validate
-scripts/systemverilog-agent approve PROJECT --approver NAME
+# 默认无需人工审批，generate 自动锁定当前内容。
+# 正式评审或 review_gate: required 时再执行：
+# scripts/systemverilog-agent approve PROJECT --approver NAME
 scripts/systemverilog-agent generate PROJECT
 scripts/systemverilog-agent apply-edits PROJECT edits.json
 scripts/systemverilog-agent verify PROJECT
 ```
+
+默认 handoff 使用 `review_gate: optional`，`generate` 自动创建带摘要的 `rtl-checkpoint.yaml`。它弱化了人工流程，但输入、图谱、源码索引或 handoff 漂移仍会阻断 edit/verify。正式交付可设置 `review_gate: required` 并执行具名审批。
 
 `generate` 不覆盖已有 worktree 或 baseline。新一轮生成前应先保存已有 diff/report，再明确处理旧的生成目录。
 

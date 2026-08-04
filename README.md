@@ -7,6 +7,8 @@
 
 SystemVerilog 后端不从 UHDM 反向打印完整工程。pyslang CST 负责源码定位和受限编辑，配置的 elaboration 后端负责结构事实，UHDM/VPI 只作为可选结构交叉校验。详细流程见 [SystemVerilog 后端](docs/systemverilog-agent.md)。
 
+用于端到端演示的中等规模任务见 [OpenTitan GPIO 可编程输入滤波周期](docs/benchmark-opentitan-gpio.md)。
+
 工作流和图/规范工具通过本地 `uv` 环境运行；容器镜像只保留需要专用二进制
 工具链的角色：
 

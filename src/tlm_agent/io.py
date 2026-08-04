@@ -240,6 +240,7 @@ def project_paths(project_dir: Path) -> dict[str, Path]:
         "rtl_handoff": state / "contracts" / "rtl-handoff.yaml",
         "rtl_conflicts": state / "contracts" / "rtl-conflicts.yaml",
         "rtl_approval": state / "contracts" / "rtl-approval.yaml",
+        "rtl_checkpoint": state / "contracts" / "rtl-checkpoint.yaml",
         "rtl_test_manifest": state / "contracts" / "rtl-testbench.yaml",
         "rtl_state": rtl_state,
         "rtl_source_index": rtl_state / "source-index.jsonl",

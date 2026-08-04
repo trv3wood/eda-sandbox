@@ -9,6 +9,7 @@ The existing project directory and `manifest.yaml` remain the unit of work. TLM 
     rtl-handoff.yaml
     rtl-conflicts.yaml
     rtl-approval.yaml
+    rtl-checkpoint.yaml
     rtl-testbench.yaml        # optional existing-test registry
   rtl/
     source-index.jsonl
@@ -31,15 +32,16 @@ uv sync --extra rtl
 scripts/systemverilog-agent architect PROJECT --mode patch
 # Complete rtl-handoff.yaml and resolve rtl-conflicts.yaml.
 scripts/systemverilog-agent architect PROJECT --validate
-scripts/systemverilog-agent approve PROJECT --approver NAME
+# 可选：正式评审或 review_gate=required 时执行 approve。
+# scripts/systemverilog-agent approve PROJECT --approver NAME
 scripts/systemverilog-agent generate PROJECT
 scripts/systemverilog-agent apply-edits PROJECT edits.json
 scripts/systemverilog-agent verify PROJECT
 ```
 
-Approval hashes the project manifest, canonical graph and current inputs, source index and indexed source-file digests, RTL handoff, RTL conflicts, and optional test manifest. A change to any of them blocks generation and edit application.
+默认 `review_gate: optional`。`generate` 自动创建内容 checkpoint，哈希 project manifest、canonical graph/current inputs、source index/current source digests、RTL handoff、conflicts 和 test manifest。后续变化会阻断 edit/verify。设置 `review_gate: required` 时必须先有具名 approval。
 
-`generate` refuses to overwrite an existing baseline or worktree. Preserve or explicitly remove the prior generated tree before starting a new approved generation.
+`generate` refuses to overwrite an existing baseline or worktree. Preserve or explicitly remove the prior generated tree before starting a new checkpointed generation.
 
 The LLM edit protocol is JSON:
 
@@ -56,5 +58,4 @@ The LLM edit protocol is JSON:
 }
 ```
 
-Edits are byte-range replacements applied from the end of each file toward the beginning. Duplicate targets, overlapping ranges, stale digests, unsafe paths, unknown requirements, or changes outside approved files fail closed.
-
+Edits are byte-range replacements applied from the end of each file toward the beginning. Duplicate targets, overlapping ranges, stale digests, unsafe paths, unknown requirements, or changes outside declared files fail closed.

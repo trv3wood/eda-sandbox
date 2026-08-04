@@ -9,7 +9,7 @@ from typing import Any
 from tlm_agent.io import dump_json, load_json, load_yaml, project_paths
 
 from .common import safe_relative_path
-from .workflow import rtl_approval_is_valid
+from .workflow import rtl_gate_is_valid
 
 
 def _blocked(reason: str) -> dict[str, Any]:
@@ -182,7 +182,7 @@ def _structure_gate(
 
 def verify_rtl(project_dir: Path) -> dict[str, Any]:
     """分层验证 RTL worktree，缺失外部工具时显式 blocked。"""
-    valid, reason = rtl_approval_is_valid(project_dir)
+    valid, reason = rtl_gate_is_valid(project_dir)
     if not valid:
         raise ValueError(f"RTL verification blocked: {reason}")
     paths = project_paths(project_dir)
@@ -230,7 +230,7 @@ def verify_rtl(project_dir: Path) -> dict[str, Any]:
         overall = "passed"
     report = {
         "schema_version": 1,
-        "approval": reason,
+        "content_gate": reason,
         "integrity": integrity,
         "parse_elaborate": parse,
         "structure_delta": structure,

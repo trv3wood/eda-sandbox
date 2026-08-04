@@ -18,7 +18,7 @@ from tlm_agent.io import (
 )
 
 from .common import safe_relative_path
-from .workflow import rtl_approval_is_valid
+from .workflow import ensure_rtl_gate, rtl_gate_is_valid
 
 
 def _semicolon(value: str) -> str:
@@ -178,7 +178,7 @@ def _patch_targets(paths: dict[str, Path], handoff: dict[str, Any]) -> list[dict
 
 def generate_rtl(project_dir: Path) -> dict[str, Any]:
     """从获批 handoff 生成骨架或隔离 patch working tree。"""
-    valid, reason = rtl_approval_is_valid(project_dir)
+    valid, reason = ensure_rtl_gate(project_dir)
     if not valid:
         raise ValueError(f"RTL generation blocked: {reason}")
     paths = project_paths(project_dir)
@@ -199,7 +199,7 @@ def generate_rtl(project_dir: Path) -> dict[str, Any]:
         "schema_version": 1,
         "mode": mode,
         "top": handoff["target"]["top"],
-        "approval": reason,
+        "content_gate": reason,
         "files": generated,
         "targets": targets,
     }
@@ -237,7 +237,7 @@ def _diff_trees(paths: dict[str, Path], touched: set[Path]) -> str:
 
 def apply_rtl_edits(project_dir: Path, edits_path: Path) -> dict[str, Any]:
     """校验结构化 edit，并只更新隔离 working tree。"""
-    valid, reason = rtl_approval_is_valid(project_dir)
+    valid, reason = rtl_gate_is_valid(project_dir)
     if not valid:
         raise ValueError(f"RTL edit blocked: {reason}")
     paths = project_paths(project_dir)
@@ -287,7 +287,7 @@ def apply_rtl_edits(project_dir: Path, edits_path: Path) -> dict[str, Any]:
     paths["rtl_patch"].write_text(patch, encoding="utf-8")
     dump_json(paths["rtl_edits"], {
         "schema_version": 1,
-        "approval": reason,
+        "content_gate": reason,
         "source": str(edits_path),
         "edits": edits,
     })

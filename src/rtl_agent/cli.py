@@ -48,7 +48,7 @@ def build_parser() -> argparse.ArgumentParser:
     approve.add_argument("--approver", required=True)
     for name, help_text in (
         ("source-index", "build the pyslang source index"),
-        ("generate", "generate an approved RTL scaffold or worktree"),
+        ("generate", "checkpoint and generate an RTL scaffold or worktree"),
         ("verify", "verify the generated RTL worktree"),
         ("status", "show RTL workflow status"),
     ):
