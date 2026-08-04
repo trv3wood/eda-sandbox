@@ -66,8 +66,15 @@ jobs:
             echo "=== SCC SDK Boost inventory ==="
             find /opt/scc-deps -type f \
               \( -name "libboost_*.a" -o -name "libboost_*.so*" \) -printf "%p\n" | sort
-            echo "=== lz4 compatibility config ==="
-            sed -n "1,120p" /opt/scc-deps/lib/cmake/lz4/lz4-config.cmake
+            echo "=== Relocatable dependency configs ==="
+            for config in \
+              /opt/scc-deps/lib/cmake/lz4/lz4-config.cmake \
+              /opt/scc-deps/lib/cmake/fmt/fmt-config.cmake \
+              /opt/scc-deps/lib/cmake/spdlog/spdlog-config.cmake \
+              /opt/scc-deps/lib/cmake/yaml-cpp/yaml-cpp-config.cmake; do
+              echo "--- $config"
+              sed -n "1,160p" "$config"
+            done
             echo "=== SCC exported dependencies ==="
             grep -n "find_dependency" /opt/scc/lib/cmake/scc/scc-config.cmake || true
           '

@@ -123,12 +123,28 @@ RUN set -eu; \
     fi; \
     echo "SCC install: ${systemc_build_dir} -> /opt/scc-deps" >&2; \
     cmake --install "${systemc_build_dir}" --prefix /opt/scc-deps
-# Conan 的 lz4 包只部署头文件和静态库，lwtr 的导出却要求 lz4 Config。
-# 生成可重定位兼容包，同时覆盖 Conan 与原生 lz4 常见的 target 名称。
+# Conan full_deploy 只部署这些包的头文件和静态库，但 SCC/lwtr 的导出
+# 要求 CMake Config。为全部公开依赖生成可重定位兼容包，避免逐个补洞。
 RUN set -eu; \
-    test -f /opt/scc-deps/include/lz4.h; \
-    test -f /opt/scc-deps/lib/liblz4.a; \
-    mkdir -p /opt/scc-deps/lib/cmake/lz4; \
+    for required_file in \
+        include/lz4.h \
+        include/fmt/format.h \
+        include/spdlog/spdlog.h \
+        include/yaml-cpp/yaml.h \
+        lib/liblz4.a \
+        lib/libfmt.a \
+        lib/libspdlog.a \
+        lib/libyaml-cpp.a; do \
+        test -f "/opt/scc-deps/${required_file}" || { \
+            echo "ERROR: missing deployed dependency file: ${required_file}" >&2; \
+            exit 1; \
+        }; \
+    done; \
+    mkdir -p \
+        /opt/scc-deps/lib/cmake/lz4 \
+        /opt/scc-deps/lib/cmake/fmt \
+        /opt/scc-deps/lib/cmake/spdlog \
+        /opt/scc-deps/lib/cmake/yaml-cpp; \
     printf '%s\n' \
         'get_filename_component(_lz4_prefix "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)' \
         'if(NOT TARGET LZ4::lz4_static)' \
@@ -144,8 +160,54 @@ RUN set -eu; \
         'endif()' \
         'unset(_lz4_prefix)' \
         > /opt/scc-deps/lib/cmake/lz4/lz4-config.cmake; \
-    echo "SCC install: generated relocatable lz4 compatibility config"; \
-    sed -n '1,120p' /opt/scc-deps/lib/cmake/lz4/lz4-config.cmake
+    printf '%s\n' \
+        'get_filename_component(_fmt_prefix "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)' \
+        'if(NOT TARGET fmt::fmt)' \
+        '  add_library(fmt::fmt STATIC IMPORTED)' \
+        '  set_target_properties(fmt::fmt PROPERTIES' \
+        '    IMPORTED_LOCATION "${_fmt_prefix}/lib/libfmt.a"' \
+        '    INTERFACE_INCLUDE_DIRECTORIES "${_fmt_prefix}/include")' \
+        'endif()' \
+        'if(NOT TARGET fmt::fmt-header-only)' \
+        '  add_library(fmt::fmt-header-only INTERFACE IMPORTED)' \
+        '  set_target_properties(fmt::fmt-header-only PROPERTIES' \
+        '    INTERFACE_INCLUDE_DIRECTORIES "${_fmt_prefix}/include")' \
+        'endif()' \
+        'unset(_fmt_prefix)' \
+        > /opt/scc-deps/lib/cmake/fmt/fmt-config.cmake; \
+    printf '%s\n' \
+        'include(CMakeFindDependencyMacro)' \
+        'find_dependency(fmt CONFIG REQUIRED)' \
+        'get_filename_component(_spdlog_prefix "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)' \
+        'if(NOT TARGET spdlog::spdlog)' \
+        '  add_library(spdlog::spdlog STATIC IMPORTED)' \
+        '  set_target_properties(spdlog::spdlog PROPERTIES' \
+        '    IMPORTED_LOCATION "${_spdlog_prefix}/lib/libspdlog.a"' \
+        '    INTERFACE_INCLUDE_DIRECTORIES "${_spdlog_prefix}/include"' \
+        '    INTERFACE_COMPILE_DEFINITIONS "SPDLOG_COMPILED_LIB;SPDLOG_FMT_EXTERNAL"' \
+        '    INTERFACE_LINK_LIBRARIES fmt::fmt)' \
+        'endif()' \
+        'if(NOT TARGET spdlog::spdlog_header_only)' \
+        '  add_library(spdlog::spdlog_header_only INTERFACE IMPORTED)' \
+        '  set_target_properties(spdlog::spdlog_header_only PROPERTIES' \
+        '    INTERFACE_INCLUDE_DIRECTORIES "${_spdlog_prefix}/include"' \
+        '    INTERFACE_LINK_LIBRARIES fmt::fmt)' \
+        'endif()' \
+        'unset(_spdlog_prefix)' \
+        > /opt/scc-deps/lib/cmake/spdlog/spdlog-config.cmake; \
+    printf '%s\n' \
+        'get_filename_component(_yaml_cpp_prefix "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)' \
+        'if(NOT TARGET yaml-cpp::yaml-cpp)' \
+        '  add_library(yaml-cpp::yaml-cpp STATIC IMPORTED)' \
+        '  set_target_properties(yaml-cpp::yaml-cpp PROPERTIES' \
+        '    IMPORTED_LOCATION "${_yaml_cpp_prefix}/lib/libyaml-cpp.a"' \
+        '    INTERFACE_INCLUDE_DIRECTORIES "${_yaml_cpp_prefix}/include")' \
+        'endif()' \
+        'unset(_yaml_cpp_prefix)' \
+        > /opt/scc-deps/lib/cmake/yaml-cpp/yaml-cpp-config.cmake; \
+    echo "SCC install: generated relocatable dependency configs"; \
+    find /opt/scc-deps/lib/cmake -maxdepth 2 -type f \
+        \( -name '*-config.cmake' -o -name '*Config.cmake' \) -print | sort
 RUN set -eu; \
     echo "SCC verify: checking SystemCLanguage CMake export" >&2; \
     for required_file in \
@@ -187,5 +249,8 @@ ENV PATH=/opt/scc/bin:/usr/local/bin:/usr/bin \
     IMAGE_REVISION=${IMAGE_REVISION}
 RUN test -f \
     /opt/scc-deps/lib/cmake/SystemCLanguage/SystemCLanguageConfig.cmake && \
-    test -f /opt/scc-deps/lib/cmake/lz4/lz4-config.cmake
+    test -f /opt/scc-deps/lib/cmake/lz4/lz4-config.cmake && \
+    test -f /opt/scc-deps/lib/cmake/fmt/fmt-config.cmake && \
+    test -f /opt/scc-deps/lib/cmake/spdlog/spdlog-config.cmake && \
+    test -f /opt/scc-deps/lib/cmake/yaml-cpp/yaml-cpp-config.cmake
 CMD ["/bin/bash"]

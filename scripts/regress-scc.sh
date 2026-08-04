@@ -105,13 +105,16 @@ printf '%s\n' \
   'cmake_minimum_required(VERSION 3.20)' \
   'project(scc_probe LANGUAGES CXX)' \
   'find_package(lz4 CONFIG REQUIRED)' \
-  'foreach(lz4_target IN ITEMS LZ4::lz4_static lz4::lz4)' \
-  '  if(NOT TARGET ${lz4_target})' \
-  '    message(FATAL_ERROR "lz4 package did not export ${lz4_target}")' \
+  'find_package(fmt CONFIG REQUIRED)' \
+  'find_package(spdlog CONFIG REQUIRED)' \
+  'find_package(yaml-cpp CONFIG REQUIRED)' \
+  'foreach(dependency_target IN ITEMS LZ4::lz4_static lz4::lz4 fmt::fmt spdlog::spdlog yaml-cpp::yaml-cpp)' \
+  '  if(NOT TARGET ${dependency_target})' \
+  '    message(FATAL_ERROR "SDK dependency package did not export ${dependency_target}")' \
   '  endif()' \
-  '  get_target_property(lz4_location ${lz4_target} IMPORTED_LOCATION)' \
-  '  get_target_property(lz4_links ${lz4_target} INTERFACE_LINK_LIBRARIES)' \
-  '  message(STATUS "SDK lz4 target ${lz4_target}: location=${lz4_location}; links=${lz4_links}")' \
+  '  get_target_property(dependency_location ${dependency_target} IMPORTED_LOCATION)' \
+  '  get_target_property(dependency_links ${dependency_target} INTERFACE_LINK_LIBRARIES)' \
+  '  message(STATUS "SDK dependency target ${dependency_target}: location=${dependency_location}; links=${dependency_links}")' \
   'endforeach()' \
   'find_package(SystemCLanguage CONFIG REQUIRED)' \
   'find_package(scc CONFIG REQUIRED)' \
