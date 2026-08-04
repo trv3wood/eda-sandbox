@@ -78,7 +78,9 @@ RUN cd /tmp/scc-src && \
     /opt/conan/bin/conan install . \
         --output-folder=/tmp/scc-conan \
         --deployer=full_deploy \
-        --build=missing -s build_type=Release
+        --build=missing \
+        -s build_type=Release \
+        -o 'boost/*:without_process=True'
 RUN cd /tmp/scc-src && \
     cmake -S . -B /tmp/scc-build -G Ninja \
         -DCMAKE_TOOLCHAIN_FILE=/tmp/scc-conan/build/Release/generators/conan_toolchain.cmake \
@@ -126,7 +128,12 @@ RUN set -eu; \
             exit 1; \
         fi; \
         echo "SCC deploy: found ${required_path}" >&2; \
-    done
+    done; \
+    echo "SCC deploy: checking Boost generator has no unavailable boost_process library"; \
+    if grep -R -n 'boost_process' /opt/scc-deps/build/Release/generators; then \
+        echo "ERROR: Boost CMake generator still references unavailable boost_process" >&2; \
+        exit 1; \
+    fi
 RUN set -eu; \
     scc_config=/opt/scc/lib/cmake/scc/scc-config.cmake; \
     echo "SCC export before dependency compatibility patch:"; \
