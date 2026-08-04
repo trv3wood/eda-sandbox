@@ -123,6 +123,29 @@ RUN set -eu; \
     fi; \
     echo "SCC install: ${systemc_build_dir} -> /opt/scc-deps" >&2; \
     cmake --install "${systemc_build_dir}" --prefix /opt/scc-deps
+# Conan 的 lz4 包只部署头文件和静态库，lwtr 的导出却要求 lz4 Config。
+# 生成可重定位兼容包，同时覆盖 Conan 与原生 lz4 常见的 target 名称。
+RUN set -eu; \
+    test -f /opt/scc-deps/include/lz4.h; \
+    test -f /opt/scc-deps/lib/liblz4.a; \
+    mkdir -p /opt/scc-deps/lib/cmake/lz4; \
+    printf '%s\n' \
+        'get_filename_component(_lz4_prefix "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)' \
+        'if(NOT TARGET LZ4::lz4_static)' \
+        '  add_library(LZ4::lz4_static STATIC IMPORTED)' \
+        '  set_target_properties(LZ4::lz4_static PROPERTIES' \
+        '    IMPORTED_LOCATION "${_lz4_prefix}/lib/liblz4.a"' \
+        '    INTERFACE_INCLUDE_DIRECTORIES "${_lz4_prefix}/include")' \
+        'endif()' \
+        'if(NOT TARGET lz4::lz4)' \
+        '  add_library(lz4::lz4 INTERFACE IMPORTED)' \
+        '  set_target_properties(lz4::lz4 PROPERTIES' \
+        '    INTERFACE_LINK_LIBRARIES LZ4::lz4_static)' \
+        'endif()' \
+        'unset(_lz4_prefix)' \
+        > /opt/scc-deps/lib/cmake/lz4/lz4-config.cmake; \
+    echo "SCC install: generated relocatable lz4 compatibility config"; \
+    sed -n '1,120p' /opt/scc-deps/lib/cmake/lz4/lz4-config.cmake
 RUN set -eu; \
     echo "SCC verify: checking SystemCLanguage CMake export" >&2; \
     for required_file in \
@@ -163,5 +186,6 @@ ENV PATH=/opt/scc/bin:/usr/local/bin:/usr/bin \
     LD_LIBRARY_PATH=/opt/scc/lib:/opt/scc-deps/lib \
     IMAGE_REVISION=${IMAGE_REVISION}
 RUN test -f \
-    /opt/scc-deps/lib/cmake/SystemCLanguage/SystemCLanguageConfig.cmake
+    /opt/scc-deps/lib/cmake/SystemCLanguage/SystemCLanguageConfig.cmake && \
+    test -f /opt/scc-deps/lib/cmake/lz4/lz4-config.cmake
 CMD ["/bin/bash"]

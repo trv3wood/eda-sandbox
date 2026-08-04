@@ -104,6 +104,15 @@ printf '%s\n' '  === Phase 2/3: configure the SCC consumer ==='
 printf '%s\n' \
   'cmake_minimum_required(VERSION 3.20)' \
   'project(scc_probe LANGUAGES CXX)' \
+  'find_package(lz4 CONFIG REQUIRED)' \
+  'foreach(lz4_target IN ITEMS LZ4::lz4_static lz4::lz4)' \
+  '  if(NOT TARGET ${lz4_target})' \
+  '    message(FATAL_ERROR "lz4 package did not export ${lz4_target}")' \
+  '  endif()' \
+  '  get_target_property(lz4_location ${lz4_target} IMPORTED_LOCATION)' \
+  '  get_target_property(lz4_links ${lz4_target} INTERFACE_LINK_LIBRARIES)' \
+  '  message(STATUS "SDK lz4 target ${lz4_target}: location=${lz4_location}; links=${lz4_links}")' \
+  'endforeach()' \
   'find_package(SystemCLanguage CONFIG REQUIRED)' \
   'find_package(scc CONFIG REQUIRED)' \
   'add_executable(scc_probe main.cpp)' \
