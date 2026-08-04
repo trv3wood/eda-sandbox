@@ -36,13 +36,22 @@ fi
 printf '  SCC:     %s\n' "${scc_prefix}"
 printf '  CMAKE_PREFIX_PATH: %s\n' "${CMAKE_PREFIX_PATH:-<unset>}"
 printf '  LD_LIBRARY_PATH:   %s\n' "${LD_LIBRARY_PATH:-<unset>}"
-# Rocky SDK 会随包归档 Conan generators；Ubuntu 镜像只部署包本身，
-# 两种布局都应由同一个 SCC 探针支持，诊断不能把可选目录当作前置条件。
+# Rocky SDK 会随包归档 Conan generators；Ubuntu 镜像使用 CMake 的
+# FindBoost module 查找部署后的头文件和库，不能强制要求 Boost Config。
+boost_config="$(find "${scc_deps}" -type f \
+  \( -iname 'boostconfig.cmake' -o -iname 'boost-config.cmake' \) -print -quit)"
 printf '%s\n' '  Boost CMake package files:'
 find "${scc_deps}" -type f \( \
   -iname 'boost*config.cmake' -o \
   -iname 'boost*targets*.cmake' \
 \) -print | sort
+if [[ -n "${boost_config}" ]]; then
+  boost_find_package='find_package(Boost CONFIG REQUIRED)'
+  printf '  Boost discovery mode: Config (%s)\n' "${boost_config}"
+else
+  boost_find_package='find_package(Boost REQUIRED COMPONENTS date_time filesystem)'
+  printf '%s\n' '  Boost discovery mode: FindBoost module'
+fi
 printf '%s\n' '  Boost date_time/filesystem libraries:'
 find "${scc_deps}" -type f \( \
   -name 'libboost_date_time.*' -o -name 'libboost_filesystem.*' \
@@ -54,8 +63,8 @@ trap 'rm -rf "${probe_root}"' EXIT
 boost_probe_dir="${probe_root}/01-boost-components"
 scc_probe_dir="${probe_root}/02-scc-package"
 mkdir -p "${boost_probe_dir}" "${scc_probe_dir}"
-# Conan 的 CMakeDeps 生成器按 Release 配置随 SDK 一同归档；
-# 不设置构建类型会在 find_package(SystemCLanguage) 阶段直接失败。
+# Rocky 的 Conan generators 按 Release 配置归档；Ubuntu 的 module-mode
+# Boost 也使用相同构建类型，保持两个 SDK 的探针参数一致。
 scc_build_type="${EDA_SCC_BUILD_TYPE:-Release}"
 printf '  SCC dependency build type: %s\n' "${scc_build_type}"
 cmake_debug_args=()
@@ -74,7 +83,7 @@ printf '%s\n' '  === Phase 1/3: verify Boost date_time and filesystem ==='
 printf '%s\n' \
   'cmake_minimum_required(VERSION 3.20)' \
   'project(scc_boost_probe LANGUAGES CXX)' \
-  'find_package(Boost CONFIG REQUIRED)' \
+  "${boost_find_package}" \
   'foreach(boost_target IN ITEMS Boost::date_time Boost::filesystem)' \
   '  if(NOT TARGET ${boost_target})' \
   '    message(FATAL_ERROR "Boost package did not export ${boost_target}")' \
