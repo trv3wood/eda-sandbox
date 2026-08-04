@@ -34,6 +34,17 @@ jobs:
           platforms: linux/amd64
           cache-from: type=gha,scope=eda-scc-compile
           cache-to: type=gha,mode=max,scope=eda-scc-compile
+      - name: Warm SCC SDK assembly cache
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.ubuntu
+          target: scc-builder
+          platforms: linux/amd64
+          cache-from: |
+            type=gha,scope=eda-scc-compile
+            type=gha,scope=eda-scc-sdk
+          cache-to: type=gha,mode=max,scope=eda-scc-sdk
       - uses: docker/build-push-action@v6
         with:
           context: .
@@ -45,6 +56,7 @@ jobs:
           load: true
           cache-from: |
             type=gha,scope=eda-scc-compile
+            type=gha,scope=eda-scc-sdk
             type=gha,scope=eda-scc
           cache-to: type=gha,mode=max,scope=eda-scc
       - name: Smoke test and size gate
