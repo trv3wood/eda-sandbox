@@ -278,6 +278,8 @@ COPY --from=scc-builder /opt/scc-deps /opt/scc-deps
 COPY pyproject.toml /opt/systemc-agent/
 COPY src /opt/systemc-agent/src
 COPY scripts/regress*.sh /opt/systemc-agent/scripts/
+# 最终 SDK 仅复制部署产物；Conan CMakeDeps 的 build/generators 目录不是
+# 稳定交付接口。Boost 必须由部署后的头文件和库通过 FindBoost 发现。
 RUN python3 -m pip install --break-system-packages --no-cache-dir /opt/systemc-agent
 ENV PATH=/opt/scc/bin:/usr/local/bin:/usr/bin \
     EDA_TOOL_CMAKE=/usr/bin/cmake \
@@ -287,8 +289,7 @@ ENV PATH=/opt/scc/bin:/usr/local/bin:/usr/bin \
     EDA_CXX_STANDARD=17 \
     EDA_SCC_HOME=/opt/scc \
     EDA_SCC_DEPS=/opt/scc-deps \
-    CMAKE_PREFIX_PATH=/opt/scc:/opt/scc-deps/build/Release/generators:/opt/scc-deps \
-    CMAKE_MODULE_PATH=/opt/scc-deps/build/Release/generators \
+    CMAKE_PREFIX_PATH=/opt/scc:/opt/scc-deps \
     LD_LIBRARY_PATH=/opt/scc/lib:/opt/scc-deps/lib \
     IMAGE_REVISION=${IMAGE_REVISION}
 RUN test -f \
@@ -298,6 +299,5 @@ RUN test -f \
     test -f /opt/scc-deps/lib/cmake/spdlog/spdlog-config.cmake && \
     test -f /opt/scc-deps/lib/cmake/yaml-cpp/yaml-cpp-config.cmake && \
     test -f /opt/scc-deps/lib/cmake/libbacktrace/libbacktrace-config.cmake && \
-    test -f /opt/scc-deps/lib/cmake/zstd/zstd-config.cmake && \
-    test -f /opt/scc-deps/build/Release/generators/BoostConfig.cmake
+    test -f /opt/scc-deps/lib/cmake/zstd/zstd-config.cmake
 CMD ["/bin/bash"]
