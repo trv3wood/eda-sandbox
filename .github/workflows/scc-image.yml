@@ -61,6 +61,14 @@ jobs:
           cache-to: type=gha,mode=max,scope=eda-scc
       - name: Smoke test and size gate
         run: |
+          docker run --rm "$IMAGE" bash -lc '
+            set -Eeuo pipefail
+            echo "=== SCC SDK CMake package inventory ==="
+            find /opt/scc-deps/build/Release/generators -maxdepth 1 -type f \
+              \( -name "*Config.cmake" -o -name "*-config.cmake" \) -printf "%f\n" | sort
+            echo "=== SCC exported dependencies ==="
+            grep -n "find_dependency" /opt/scc/lib/cmake/scc/scc-config.cmake || true
+          '
           docker run --rm "$IMAGE" bash /opt/systemc-agent/scripts/regress.sh scc
           bytes="$(docker image inspect "$IMAGE" --format '{{.Size}}')"
           test "$bytes" -le "$((2 * 1024 * 1024 * 1024))"
