@@ -17,6 +17,7 @@ dependencies = [
 
 [project.scripts]
 systemc-tlm-agent = "tlm_agent.cli:main"
+systemverilog-agent = "rtl_agent.cli:main"
 systemc-tlm-package = "systemc_tlm_model_packager.cli:main"
 eda-uhdm = "eda_query.uhdm_runtime:main"
 eda-uhdm-produce = "tlm_agent.tool_producers:uhdm_main"
@@ -34,6 +35,9 @@ vector = [
   "duckdb>=1.0",
   "faiss-cpu>=1.8",
   "sentence-transformers>=3.0",
+]
+rtl = [
+  "pyslang>=9.1",
 ]
 
 [tool.setuptools.packages.find]

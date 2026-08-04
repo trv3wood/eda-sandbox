@@ -1,0 +1,4 @@
+interface:
+  display_name: "SystemVerilog Modeling"
+  short_description: "生成证据驱动的SystemVerilog骨架与受限补丁工作区"
+  default_prompt: "Use $modeling-systemverilog to prepare an evidence-backed SystemVerilog scaffold or bounded RTL patch."
