@@ -49,7 +49,7 @@ if [[ -n "${boost_config}" ]]; then
   boost_find_package='find_package(Boost CONFIG REQUIRED)'
   printf '  Boost discovery mode: Config (%s)\n' "${boost_config}"
 else
-  boost_find_package='find_package(Boost REQUIRED COMPONENTS date_time filesystem)'
+  boost_find_package='find_package(Boost REQUIRED COMPONENTS date_time filesystem stacktrace_backtrace)'
   printf '%s\n' '  Boost discovery mode: FindBoost module'
 fi
 printf '%s\n' '  Boost date_time/filesystem libraries:'
@@ -84,7 +84,7 @@ printf '%s\n' \
   'cmake_minimum_required(VERSION 3.20)' \
   'project(scc_boost_probe LANGUAGES CXX)' \
   "${boost_find_package}" \
-  'foreach(boost_target IN ITEMS Boost::date_time Boost::filesystem)' \
+  'foreach(boost_target IN ITEMS Boost::date_time Boost::filesystem Boost::stacktrace_backtrace)' \
   '  if(NOT TARGET ${boost_target})' \
   '    message(FATAL_ERROR "Boost package did not export ${boost_target}")' \
   '  endif()' \
@@ -108,7 +108,9 @@ printf '%s\n' \
   'find_package(fmt CONFIG REQUIRED)' \
   'find_package(spdlog CONFIG REQUIRED)' \
   'find_package(yaml-cpp CONFIG REQUIRED)' \
-  'foreach(dependency_target IN ITEMS LZ4::lz4_static lz4::lz4 fmt::fmt spdlog::spdlog yaml-cpp::yaml-cpp)' \
+  'find_package(BZip2 REQUIRED)' \
+  'find_package(libbacktrace CONFIG REQUIRED)' \
+  'foreach(dependency_target IN ITEMS LZ4::lz4_static lz4::lz4 fmt::fmt spdlog::spdlog yaml-cpp::yaml-cpp BZip2::BZip2 libbacktrace::libbacktrace)' \
   '  if(NOT TARGET ${dependency_target})' \
   '    message(FATAL_ERROR "SDK dependency package did not export ${dependency_target}")' \
   '  endif()' \
