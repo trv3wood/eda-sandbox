@@ -132,11 +132,13 @@ RUN set -eu; \
         include/spdlog/spdlog.h \
         include/yaml-cpp/yaml.h \
         include/backtrace.h \
+        include/zstd.h \
         lib/liblz4.a \
         lib/libfmt.a \
         lib/libspdlog.a \
         lib/libyaml-cpp.a \
-        lib/libbacktrace.a; do \
+        lib/libbacktrace.a \
+        lib/libzstd.a; do \
         test -f "/opt/scc-deps/${required_file}" || { \
             echo "ERROR: missing deployed dependency file: ${required_file}" >&2; \
             exit 1; \
@@ -147,7 +149,8 @@ RUN set -eu; \
         /opt/scc-deps/lib/cmake/fmt \
         /opt/scc-deps/lib/cmake/spdlog \
         /opt/scc-deps/lib/cmake/yaml-cpp \
-        /opt/scc-deps/lib/cmake/libbacktrace; \
+        /opt/scc-deps/lib/cmake/libbacktrace \
+        /opt/scc-deps/lib/cmake/zstd; \
     printf '%s\n' \
         'get_filename_component(_lz4_prefix "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)' \
         'if(NOT TARGET LZ4::lz4_static)' \
@@ -219,20 +222,30 @@ RUN set -eu; \
         'endif()' \
         'unset(_libbacktrace_prefix)' \
         > /opt/scc-deps/lib/cmake/libbacktrace/libbacktrace-config.cmake; \
+    printf '%s\n' \
+        'get_filename_component(_zstd_prefix "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)' \
+        'if(NOT TARGET zstd::libzstd_static)' \
+        '  add_library(zstd::libzstd_static STATIC IMPORTED)' \
+        '  set_target_properties(zstd::libzstd_static PROPERTIES' \
+        '    IMPORTED_LOCATION "${_zstd_prefix}/lib/libzstd.a"' \
+        '    INTERFACE_INCLUDE_DIRECTORIES "${_zstd_prefix}/include")' \
+        'endif()' \
+        'unset(_zstd_prefix)' \
+        > /opt/scc-deps/lib/cmake/zstd/zstd-config.cmake; \
     echo "SCC install: generated relocatable dependency configs"; \
     find /opt/scc-deps/lib/cmake -maxdepth 2 -type f \
         \( -name '*-config.cmake' -o -name '*Config.cmake' \) -print | sort
-# SCC 2026.05 的导出 target 公开引用了 BZip2 和 Boost stacktrace，但
-# scc-config.cmake 漏掉了对应 find_dependency 与 libbacktrace 传递链接。
+# SCC 2026.05 的导出 target 公开引用了 BZip2、zstd 和 Boost stacktrace，
+# 但 scc-config.cmake 漏掉了对应依赖与 libbacktrace 传递链接。
 RUN set -eu; \
     scc_config=/opt/scc/lib/cmake/scc/scc-config.cmake; \
     test -f "${scc_config}"; \
     grep -nF 'find_dependency(Boost COMPONENTS date_time filesystem)' "${scc_config}"; \
     sed -i \
-        's/find_dependency(Boost COMPONENTS date_time filesystem)/find_dependency(BZip2 REQUIRED)\nfind_dependency(libbacktrace CONFIG REQUIRED)\nfind_dependency(Boost COMPONENTS date_time filesystem stacktrace_backtrace)\nset_property(TARGET Boost::stacktrace_backtrace APPEND PROPERTY INTERFACE_LINK_LIBRARIES libbacktrace::libbacktrace)/' \
+        's/find_dependency(Boost COMPONENTS date_time filesystem)/find_dependency(BZip2 REQUIRED)\nfind_dependency(libbacktrace CONFIG REQUIRED)\nfind_dependency(zstd CONFIG REQUIRED)\nfind_dependency(Boost COMPONENTS date_time filesystem stacktrace_backtrace)\nset_property(TARGET Boost::stacktrace_backtrace APPEND PROPERTY INTERFACE_LINK_LIBRARIES libbacktrace::libbacktrace)/' \
         "${scc_config}"; \
     echo "SCC install: patched exported dependency closure"; \
-    grep -nE 'BZip2|libbacktrace|Boost.*stacktrace' "${scc_config}"
+    grep -nE 'BZip2|libbacktrace|zstd|Boost.*stacktrace' "${scc_config}"
 RUN set -eu; \
     echo "SCC verify: checking SystemCLanguage CMake export" >&2; \
     for required_file in \
@@ -278,5 +291,6 @@ RUN test -f \
     test -f /opt/scc-deps/lib/cmake/fmt/fmt-config.cmake && \
     test -f /opt/scc-deps/lib/cmake/spdlog/spdlog-config.cmake && \
     test -f /opt/scc-deps/lib/cmake/yaml-cpp/yaml-cpp-config.cmake && \
-    test -f /opt/scc-deps/lib/cmake/libbacktrace/libbacktrace-config.cmake
+    test -f /opt/scc-deps/lib/cmake/libbacktrace/libbacktrace-config.cmake && \
+    test -f /opt/scc-deps/lib/cmake/zstd/zstd-config.cmake
 CMD ["/bin/bash"]

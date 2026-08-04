@@ -72,7 +72,8 @@ jobs:
               /opt/scc-deps/lib/cmake/fmt/fmt-config.cmake \
               /opt/scc-deps/lib/cmake/spdlog/spdlog-config.cmake \
               /opt/scc-deps/lib/cmake/yaml-cpp/yaml-cpp-config.cmake \
-              /opt/scc-deps/lib/cmake/libbacktrace/libbacktrace-config.cmake; do
+              /opt/scc-deps/lib/cmake/libbacktrace/libbacktrace-config.cmake \
+              /opt/scc-deps/lib/cmake/zstd/zstd-config.cmake; do
               echo "--- $config"
               sed -n "1,160p" "$config"
             done
