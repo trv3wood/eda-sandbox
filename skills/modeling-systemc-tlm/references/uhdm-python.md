@@ -113,7 +113,9 @@ scripts/eda-run --work WORK uhdm \
 diagnostics. `run.json` records database/script hashes, binding information,
 limits, return code, and stream hashes.
 
-These outputs are exploratory. Do not convert them into canonical graph IDs.
+These outputs are exploratory. Use them to navigate back to the relevant Spec
+or RTL source, and record the query command as a harness check when it is part
+of task verification.
 Use reported `vpiFile`/`vpiLineNo` locations to inspect the actual RTL and cite
 the extractor-owned evidence IDs. Report unsupported relations, incomplete
 elaboration, and parser diagnostics as limitations.

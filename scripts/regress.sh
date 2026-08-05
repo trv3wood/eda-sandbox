@@ -11,7 +11,7 @@ if [[ "${profile}" == "auto" ]]; then
     profile="scc"
   elif [[ -f /etc/rocky-release ]]; then
     profile="systemc"
-  elif command -v "$(tool_path EDA_TOOL_VCS vcs)" >/dev/null && command -v eda-rtl-produce >/dev/null; then
+  elif command -v "$(tool_path EDA_TOOL_VCS vcs)" >/dev/null; then
     profile="vcs"
   elif command -v "$(tool_path EDA_TOOL_SURELOG surelog)" >/dev/null && command -v "$(tool_path EDA_TOOL_UHDM eda-uhdm)" >/dev/null; then
     profile="uhdm"

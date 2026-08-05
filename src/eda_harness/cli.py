@@ -1,0 +1,91 @@
+"""统一 EDA harness 命令行入口。"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+from .config import load_config
+from .discovery import discover
+from .snapshot import STATE_DIR, create_snapshot
+from .toolchain import CONFIG_ENV, load_toolchain_config
+from .verification import verify
+
+
+def _path(root: Path, value: str) -> Path:
+    path = Path(value)
+    return path.resolve() if path.is_absolute() else (root / path).resolve()
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="eda-harness")
+    parser.add_argument(
+        "--toolchain-config",
+        help=f"白名单 KEY=VALUE 工具链配置（也可使用 {CONFIG_ENV}）",
+    )
+    commands = parser.add_subparsers(dest="command", required=True)
+    discover_parser = commands.add_parser("discover", help="探测 EDA 与构建能力")
+    discover_parser.add_argument("root", nargs="?", default=".")
+    for name, help_text in (
+        ("snapshot", "记录任务开始前的文件基线"),
+        ("verify", "核对改动范围并执行验证命令"),
+    ):
+        command = commands.add_parser(name, help=help_text)
+        command.add_argument("root", nargs="?", default=".")
+        command.add_argument("--task", default="task.md")
+        command.add_argument("--config", default="harness.yaml")
+    status = commands.add_parser("status", help="读取最近的 harness 状态")
+    status.add_argument("root", nargs="?", default=".")
+    return parser
+
+
+def _status(root: Path) -> dict[str, object]:
+    state = root / STATE_DIR
+    result: dict[str, object] = {}
+    for name in ("discovery", "baseline", "report"):
+        path = state / f"{name}.json"
+        result[name] = (
+            json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
+        )
+    return result
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    try:
+        load_toolchain_config(args.toolchain_config)
+        root = Path(args.root).resolve()
+        if not root.is_dir():
+            raise FileNotFoundError(root)
+        if args.command == "discover":
+            result = discover(root)
+        elif args.command == "status":
+            result = _status(root)
+        else:
+            config_path = _path(root, args.config)
+            task_path = _path(root, args.task)
+            config = load_config(root, config_path)
+            result = (
+                create_snapshot(
+                    root,
+                    config_path=config_path,
+                    task_path=task_path,
+                    config=config,
+                )
+                if args.command == "snapshot"
+                else verify(root, config_path=config_path, task_path=task_path, config=config)
+            )
+        print(json.dumps(result, indent=2, sort_keys=True, ensure_ascii=False))
+        if args.command == "verify" and result["status"] != "passed":
+            return 1
+        return 0
+    except (FileExistsError, FileNotFoundError, RuntimeError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

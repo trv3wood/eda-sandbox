@@ -9,7 +9,7 @@ uhdm_lint_tool="$(tool_path EDA_TOOL_UHDM_LINT uhdm-lint)"
 uhdm_hier_tool="$(tool_path EDA_TOOL_UHDM_HIER uhdm-hier)"
 uhdm_tool="$(tool_path EDA_TOOL_UHDM eda-uhdm)"
 require_tools \
-  python3 "${surelog_tool}" "${uhdm_lint_tool}" "${uhdm_hier_tool}" "${uhdm_tool}" eda-uhdm-produce
+  python3 "${surelog_tool}" "${uhdm_lint_tool}" "${uhdm_hier_tool}" "${uhdm_tool}"
 python3 -c 'import uhdm; print("  UHDM:    Python binding available")'
 "${uhdm_tool}" version
 probe_dir="$(mktemp -d)"

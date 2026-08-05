@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 load_toolchain_config() {
-  local config="${SYSTEMC_TLM_TOOLCHAIN_CONFIG:-}"
+  local config="${EDA_HARNESS_TOOLCHAIN_CONFIG:-}"
   local key value line number=0
   [[ -n "${config}" ]] || return 0
   [[ -r "${config}" ]] || {
@@ -23,7 +23,8 @@ load_toolchain_config() {
     value="${BASH_REMATCH[2]}"
     case "${key}" in
       EDA_TOOL_SURELOG|EDA_TOOL_UHDM_LINT|EDA_TOOL_UHDM_HIER|EDA_TOOL_UHDM|\
-      EDA_TOOL_VCS|EDA_TOOL_CC|EDA_TOOL_CMAKE|EDA_TOOL_CXX|EDA_TOOL_CTEST|\
+      EDA_TOOL_VCS|EDA_TOOL_VERILATOR|EDA_TOOL_IVERILOG|EDA_TOOL_MAKE|\
+      EDA_TOOL_GIT|EDA_TOOL_CC|EDA_TOOL_CMAKE|EDA_TOOL_CXX|EDA_TOOL_CTEST|\
       EDA_TOOL_NINJA|EDA_TOOL_PODMAN|EDA_TOOL_PODMAN_COMPOSE|EDA_TOOL_DOCKER|\
       EDA_TOOL_UV|EDA_SCC_HOME|\
       EDA_SCC_DEPS|EDA_SYSTEMC_HOME|VCS_HOME|CMAKE_PREFIX_PATH|\

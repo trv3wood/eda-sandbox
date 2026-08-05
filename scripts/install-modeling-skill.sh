@@ -18,7 +18,7 @@ done
 [[ "$mode" =~ ^(link|copy)$ ]] || { printf 'Invalid mode\n' >&2; exit 2; }
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-skill_source="$repo_root/skills/modeling-systemc-tlm"
+skill_names=(modeling-systemc-tlm modeling-systemverilog)
 
 install_dir() {
   local source="$1" destination="$2"
@@ -39,11 +39,15 @@ install_dir() {
 }
 
 if [[ "$target" == all || "$target" == codex ]]; then
-  install_dir "$skill_source" "$HOME/.codex/skills/modeling-systemc-tlm"
+  for skill_name in "${skill_names[@]}"; do
+    install_dir "$repo_root/skills/$skill_name" "$HOME/.codex/skills/$skill_name"
+  done
 fi
 
 if [[ "$target" == all || "$target" == claude ]]; then
-  install_dir "$skill_source" "$HOME/.claude/skills/modeling-systemc-tlm"
+  for skill_name in "${skill_names[@]}"; do
+    install_dir "$repo_root/skills/$skill_name" "$HOME/.claude/skills/$skill_name"
+  done
   mkdir -p "$HOME/.claude/agents"
   for source in "$repo_root"/integrations/claude/agents/*.md; do
     destination="$HOME/.claude/agents/$(basename -- "$source")"
@@ -55,8 +59,7 @@ if [[ "$target" == all || "$target" == claude ]]; then
   done
 fi
 
-printf 'Installed modeling-systemc-tlm for %s using %s mode.\n' "$target" "$mode"
+printf 'Installed direct EDA modeling skills for %s using %s mode.\n' "$target" "$mode"
 if [[ "$mode" == copy ]]; then
-  printf 'Set SYSTEMC_TLM_AGENT_ROOT=%s so copied skill wrappers can locate the CLI.\n' "$repo_root"
+  printf 'Set EDA_HARNESS_ROOT=%s so copied skill wrappers can locate the CLI.\n' "$repo_root"
 fi
-

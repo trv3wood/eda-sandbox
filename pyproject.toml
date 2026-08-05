@@ -3,48 +3,25 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "systemc-tlm-agent"
+name = "eda-modeling-harness"
 version = "0.1.0"
-description = "Evidence-grounded SystemC/TLM modeling workflow"
+description = "EDA tool discovery, change auditing, and verification harness"
 requires-python = ">=3.10"
 dependencies = [
-  "jsonschema>=4.20",
-  "openpyxl>=3.1",
-  "pydantic>=2.6",
-  "python-docx>=1.1",
   "PyYAML>=6.0",
 ]
 
 [project.scripts]
-systemc-tlm-agent = "tlm_agent.cli:main"
-systemverilog-agent = "rtl_agent.cli:main"
-systemc-tlm-package = "systemc_tlm_model_packager.cli:main"
+eda-harness = "eda_harness.cli:main"
 eda-uhdm = "eda_query.uhdm_runtime:main"
-eda-uhdm-produce = "tlm_agent.tool_producers:uhdm_main"
-eda-rtl-produce = "tlm_agent.tool_producers:rtl_main"
-eda-vcs-produce = "tlm_agent.tool_producers:vcs_main"
-eda-spec-produce = "tlm_agent.graph.extract:spec_main"
 
 [project.optional-dependencies]
-graph = [
-  "duckdb>=1.0",
-  "networkx>=3.2",
-  "openai>=1.40",
-]
-vector = [
-  "duckdb>=1.0",
-  "faiss-cpu>=1.8",
-  "sentence-transformers>=3.0",
-]
 rtl = [
   "pyslang>=9.1",
 ]
 
 [tool.setuptools.packages.find]
 where = ["src"]
-
-[tool.setuptools.package-data]
-tlm_agent = ["vcs_vpi_export.c"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
