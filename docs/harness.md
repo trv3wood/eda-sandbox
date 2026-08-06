@@ -11,9 +11,19 @@
 
 ### `discover ROOT`
 
-检查显式配置和 PATH 中的编译器、CMake/CTest、VCS、Verilator、Surelog/UHDM、
-容器工具，以及 pyslang、SystemC/SCC SDK 和工程文件信号。结果写入
+检查显式配置和 PATH 中的构建、RTL、仿真、综合、形式验证、FPGA、生成和调试工具，
+以及 Python 模块、SystemC/SCC/厂商 SDK、environment modules、许可证环境存在性、
+本地容器镜像和工程文件信号。结果写入
 `.eda-harness/discovery.json`。报告只保存许可证环境变量是否存在，不保存值。
+
+默认标准输出以及 `.eda-harness/discovery-summary.json` 只包含计数、通过 probe 的
+工具、需要用户确认的工具、当前可用 capability、SDK/module/container 摘要和限制。
+完整报告仍写入 `discovery.json`；`discover --full` 可将它打印到标准输出。
+
+安全版本 probe 通过的工具为 `usable`；可能初始化许可证的商业工具只检查路径并标为
+`unverified`。报告额外按 capability 汇总候选工具。需要用户环境信息时由
+`eda-tool-assistant` 提问，discover 不执行 `module avail/load` 或目录扫描。
+Probe 失败的作用域是当前进程或沙盒，不能据此否定用户宿主 shell 中的工具。
 
 ### `snapshot ROOT --task task.md --config harness.yaml`
 

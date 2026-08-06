@@ -13,7 +13,6 @@ Usage:
 
 Roles:
   agent       Local uv workflow and harness tooling
-  vcs         Local commercial EDA commands（继承当前研发网许可证环境）
   uhdm        Surelog and direct UHDM Python queries
   rtl         RTL simulation and differential-test tooling
   scc         SystemC/SCC compilation and verification
@@ -36,7 +35,6 @@ Environment:
 
 Examples:
   scripts/eda-run uhdm surelog --version
-  scripts/eda-run --work workspace vcs vcs -f /workspace/project/top.f -top top
   scripts/eda-run --work workspace agent eda-harness discover /workspace/project
   scripts/eda-run uhdm eda-uhdm run /workspace/design.uhdm \
     /workspace/query.py --output-dir /workspace/query-output
@@ -104,7 +102,7 @@ if [[ "${1:-}" == "--shell" ]]; then
 fi
 
 case "${role}" in
-  agent|vcs)
+  agent)
     ;;
   uhdm)
     role_image="${EDA_UHDM_IMAGE:-}"
@@ -142,7 +140,7 @@ work_dir="$(realpath "${work_dir}")"
   exit 2
 }
 
-if [[ "${role}" == "agent" || "${role}" == "vcs" ]]; then
+if [[ "${role}" == "agent" ]]; then
   if [[ "${shell_mode}" == true ]]; then
     [[ $# -eq 0 ]] || {
       printf 'ERROR: --shell does not accept a command\n' >&2
@@ -162,15 +160,12 @@ if [[ "${role}" == "agent" || "${role}" == "vcs" ]]; then
       *) local_args+=("${argument}") ;;
     esac
   done
-  if [[ "${role}" == "agent" ]]; then
-    uv_tool="$(tool_path EDA_TOOL_UV uv)"
-    command -v "${uv_tool}" >/dev/null 2>&1 || {
-      printf 'ERROR: uv is required for the local agent role; run uv sync\n' >&2
-      exit 1
-    }
-    exec "${uv_tool}" run --project "${repo_root}" -- "${local_args[@]}"
-  fi
-  exec "${local_args[@]}"
+  uv_tool="$(tool_path EDA_TOOL_UV uv)"
+  command -v "${uv_tool}" >/dev/null 2>&1 || {
+    printf 'ERROR: uv is required for the local agent role; run uv sync\n' >&2
+    exit 1
+  }
+  exec "${uv_tool}" run --project "${repo_root}" -- "${local_args[@]}"
 fi
 
 image="${image_override:-${role_image:-${EDA_IMAGE_PREFIX:-ghcr.io/trv3wood}/${image_name}:${tag}}}"

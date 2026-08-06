@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from .config import load_config
-from .discovery import discover
+from .discovery import discover, summarize_discovery
 from .snapshot import STATE_DIR, create_snapshot
 from .toolchain import CONFIG_ENV, load_toolchain_config
 from .verification import verify
@@ -28,6 +28,11 @@ def build_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     discover_parser = commands.add_parser("discover", help="探测 EDA 与构建能力")
     discover_parser.add_argument("root", nargs="?", default=".")
+    discover_parser.add_argument(
+        "--full",
+        action="store_true",
+        help="在标准输出打印完整报告；默认打印 Agent 摘要",
+    )
     for name, help_text in (
         ("snapshot", "记录任务开始前的文件基线"),
         ("verify", "核对改动范围并执行验证命令"),
@@ -44,8 +49,9 @@ def build_parser() -> argparse.ArgumentParser:
 def _status(root: Path) -> dict[str, object]:
     state = root / STATE_DIR
     result: dict[str, object] = {}
-    for name in ("discovery", "baseline", "report"):
-        path = state / f"{name}.json"
+    for name in ("discovery_summary", "discovery", "baseline", "report"):
+        filename = name.replace("_", "-") if name == "discovery_summary" else name
+        path = state / f"{filename}.json"
         result[name] = (
             json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
         )
@@ -61,7 +67,8 @@ def main(argv: list[str] | None = None) -> int:
         if not root.is_dir():
             raise FileNotFoundError(root)
         if args.command == "discover":
-            result = discover(root)
+            full_report = discover(root)
+            result = full_report if args.full else summarize_discovery(full_report)
         elif args.command == "status":
             result = _status(root)
         else:

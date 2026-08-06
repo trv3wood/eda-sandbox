@@ -4,7 +4,8 @@
 
 The Python harness lives in `src/eda_harness/`. `cli.py` defines the command
 line; discovery, configuration, snapshotting, and verification are separated
-into focused modules. The thin direct-modeling skills live under
+into focused modules. Environment assistance lives in
+`skills/eda-tool-assistant/`; the thin direct-modeling skills live under
 `skills/modeling-systemc-tlm/` and `skills/modeling-systemverilog/`. Tests are
 under `tests/`.
 

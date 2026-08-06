@@ -18,7 +18,7 @@ done
 [[ "$mode" =~ ^(link|copy)$ ]] || { printf 'Invalid mode\n' >&2; exit 2; }
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-skill_names=(modeling-systemc-tlm modeling-systemverilog)
+skill_names=(eda-tool-assistant modeling-systemc-tlm modeling-systemverilog)
 
 install_dir() {
   local source="$1" destination="$2"
@@ -59,7 +59,7 @@ if [[ "$target" == all || "$target" == claude ]]; then
   done
 fi
 
-printf 'Installed direct EDA modeling skills for %s using %s mode.\n' "$target" "$mode"
+printf 'Installed EDA assistant and modeling skills for %s using %s mode.\n' "$target" "$mode"
 if [[ "$mode" == copy ]]; then
   printf 'Set EDA_HARNESS_ROOT=%s so copied skill wrappers can locate the CLI.\n' "$repo_root"
 fi

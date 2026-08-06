@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -11,8 +12,9 @@ from unittest.mock import patch
 import yaml
 
 from eda_harness.config import load_config
-from eda_harness.discovery import _probe, discover
+from eda_harness.discovery import _probe, discover, summarize_discovery
 from eda_harness.snapshot import create_snapshot
+from eda_harness.tool_registry import TOOL_BY_NAME
 from eda_harness.toolchain import load_toolchain_config
 from eda_harness.verification import verify
 
@@ -151,12 +153,58 @@ class HarnessTest(unittest.TestCase):
             self.assertNotIn("secret-server", encoded)
             run.assert_not_called()
 
+    def test_discovery_summary_omits_unavailable_tool_catalog(self) -> None:
+        report = {
+            "tools": {
+                "verilator": {
+                    "available": True, "usable": True, "category": "rtl",
+                    "capabilities": ["lint"], "path": "/usr/bin/verilator",
+                    "version": "Verilator test",
+                },
+                "podman": {
+                    "available": True, "usable": False, "category": "container",
+                    "capabilities": ["container-runtime"], "path": "/usr/bin/podman",
+                    "probe_status": "failed", "version": "sandbox denied",
+                    "failure_scope": "current-execution-environment",
+                },
+                "vcs": {
+                    "available": False, "usable": False, "category": "simulation",
+                    "capabilities": ["simulate"], "path": "vcs",
+                },
+            },
+            "capabilities": {
+                "lint": {"usable": ["verilator"], "unverified": [], "unavailable": []},
+                "container-runtime": {"usable": [], "unverified": ["podman"], "unavailable": []},
+                "simulate": {"usable": [], "unverified": [], "unavailable": ["vcs"]},
+            },
+            "project_signals": ["systemverilog"],
+            "sdks": {},
+            "python_modules": {},
+            "environment_modules": {"configured": False},
+            "containers": {"engine": "docker", "images": {}},
+            "recommendations": [],
+        }
+        summary = summarize_discovery(report)
+        self.assertEqual(summary["counts"]["registered_tools"], 3)
+        self.assertEqual(summary["counts"]["probe_passed_tools"], 1)
+        self.assertEqual(summary["counts"]["tools_needing_confirmation"], 1)
+        self.assertNotIn("simulate", summary["available_capabilities"])
+        self.assertEqual(
+            summary["tools_needing_confirmation"][0]["failure_scope"],
+            "current-execution-environment",
+        )
+
     def test_toolchain_rejects_unknown_variables(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "tools.env"
             path.write_text("DANGEROUS=value\n", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "supported KEY=VALUE"):
                 load_toolchain_config(str(path))
+
+            path.write_text("EDA_TOOL_XRUN=/tools/xrun\n", encoding="utf-8")
+            with patch.dict("os.environ", {}, clear=False):
+                load_toolchain_config(str(path))
+                self.assertEqual(os.environ["EDA_TOOL_XRUN"], "/tools/xrun")
 
     def test_explicit_tool_path_precedes_path_lookup(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -171,6 +219,29 @@ class HarnessTest(unittest.TestCase):
             self.assertTrue(result["usable"])
             self.assertEqual(result["path"], str(tool.resolve()))
             self.assertEqual(result["source"], "environment:EDA_TOOL_VERILATOR")
+
+    def test_registry_covers_major_eda_categories(self) -> None:
+        for name in (
+            "vcs", "xrun", "vsim", "verilator", "slang", "surelog",
+            "yosys", "sby", "dc-shell", "genus", "spyglass",
+            "jaspergold", "vivado", "quartus", "verdi", "gtkwave",
+        ):
+            self.assertIn(name, TOOL_BY_NAME)
+        categories = {item.category for item in TOOL_BY_NAME.values()}
+        self.assertTrue({"simulation", "synthesis", "formal", "fpga", "debug"} <= categories)
+
+    @patch("eda_harness.discovery.subprocess.run")
+    def test_licensed_tool_is_discovered_without_execution(self, run) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            tool = Path(temporary) / "dc_shell"
+            tool.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+            tool.chmod(0o755)
+            with patch.dict("os.environ", {"EDA_TOOL_DC_SHELL": str(tool)}):
+                result = _probe("dc-shell")
+            self.assertTrue(result["available"])
+            self.assertIsNone(result["usable"])
+            self.assertTrue(result["needs_user_confirmation"])
+            run.assert_not_called()
 
     def test_relative_executable_and_dependency_are_supported(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -232,6 +303,7 @@ class HarnessTest(unittest.TestCase):
                 }],
             }, sort_keys=False), encoding="utf-8")
             discover(root)
+            self.assertTrue((root / ".eda-harness" / "discovery-summary.json").is_file())
             config = load_config(root, config_path)
             create_snapshot(root, config_path=config_path, task_path=task, config=config)
             source.write_text(

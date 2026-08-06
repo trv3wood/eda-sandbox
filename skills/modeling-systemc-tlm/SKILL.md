@@ -12,7 +12,8 @@ description: Implement and verify loosely timed SystemC TLM-2.0 models directly 
 1. 阅读 `references/workflow.md` 和 `references/tooling.md`，检查用户任务、规格、寄存器表、RTL、测试和已有构建系统。
 2. 将用户目标、范围、约束和验收条件忠实整理到 `task.md`；不确定的设计语义必须回到原始资料或询问用户，不得自行发明。
 3. 运行 `eda-harness discover PROJECT`，根据报告选择本地、研发网或容器工具。报告只是建议，不能替代任务相关判断。
-4. 编写最小 `harness.yaml`，声明允许修改的路径和可重复的 syntax/build/test/differential 命令，然后在首个代码改动前运行 `eda-harness snapshot PROJECT`。
+   缺少任务所需工具或激活信息时，使用 `eda-tool-assistant` 向用户确认并准备外置配置。
+4. 若任务需要改代码或运行多项验收，建立一次最小 `harness.yaml`：只声明允许修改范围和最终选定的项目验证命令；然后在首个代码改动前运行 `eda-harness snapshot PROJECT`。只做环境盘点时不需要它。
 5. 直接在用户工程中实现或修改模型和测试。优先复用工程原有结构，不生成固定 scaffold。
 6. 迭代运行目标检查；完成时运行 `eda-harness verify PROJECT`，分别报告通过、失败和因工具缺失而阻塞的层级。
 
@@ -27,6 +28,6 @@ description: Implement and verify loosely timed SystemC TLM-2.0 models directly 
 
 ## 工具策略
 
-- 使用 `scripts/eda-run` 进入 VCS、UHDM、RTL 或 SCC 环境；先复用已有数据库、编译产物和工程命令。
+- `scripts/eda-run` 只用于本仓库维护的 UHDM、RTL、SCC 等专用环境。商业工具和工程原生命令直接按项目既有方式调用。
 - UHDM 查询使用官方 Python binding 和薄 `eda-uhdm` runner，查询结果用于导航和交叉检查，不替代 Spec/RTL 原文。
 - 不自动拉取大型镜像、重编 minres-SCC 或启动长时间商业 EDA 作业；给出准确命令让用户决定。

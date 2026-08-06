@@ -4,8 +4,9 @@
 原生 EDA 工具并修改代码；程序只负责发现工具、记录任务基线、检查改动范围和执行
 可重复验证。
 
-仓库提供两个领域 skill：
+仓库提供一个环境辅助 skill 和两个领域建模 skill：
 
+- `eda-tool-assistant`：发现、确认并配置本地、研发网、module、SDK 和容器工具环境。
 - `modeling-systemc-tlm`：直接实现 loosely timed SystemC/TLM 模型与测试。
 - `modeling-systemverilog`：直接实现或修改 SystemVerilog RTL/DV。
 
@@ -18,6 +19,10 @@
 uv sync
 uv run eda-harness discover PROJECT
 ```
+
+标准输出和 `.eda-harness/discovery-summary.json` 是面向 Agent 的紧凑可用工具集；
+完整诊断保存在 `.eda-harness/discovery.json`。需要直接打印完整报告时使用
+`eda-harness discover PROJECT --full`。
 
 在项目下准备自由格式的 `task.md` 和轻量验证配置：
 
@@ -50,22 +55,23 @@ Snapshot 会把用户已有的 dirty state 作为基线，只审计此后发生�
 
 ## EDA 环境路由
 
-`discover` 检查显式 toolchain 配置、PATH、Python 模块、SystemC/SCC SDK、VCS 环境
-和容器引擎，并结合工程文件给出推荐 argv。它不会拉取镜像、启动 elaboration 或证明
-许可证可用。
+`discover` 检查显式 toolchain 配置、PATH、Python 模块、SystemC/SCC 与厂商 SDK、
+environment modules、许可证环境存在性和本地容器镜像，并按 capability 汇总仿真、
+lint、综合、形式验证、FPGA、生成和调试工具。它不会拉取镜像、执行 `module load`、
+启动 elaboration 或证明许可证可用。缺少任务所需能力时，使用
+`eda-tool-assistant` 向用户确认研发网、module、wrapper 和项目原生命令。
 
 专用工具通过 `scripts/eda-run` 进入相应环境：
 
 ```bash
 scripts/eda-run --work WORK agent eda-harness discover /workspace/PROJECT
-scripts/eda-run --work WORK vcs vcs -f /workspace/PROJECT/rtl/top.f -top top
 scripts/eda-run --work WORK uhdm eda-uhdm run \
   /workspace/design.uhdm /workspace/query.py --output-dir /workspace/query-output -- top
 scripts/eda-run --work WORK scc cmake \
   -S /workspace/PROJECT/model -B /workspace/PROJECT/model/build
 ```
 
-角色包括本地 `agent`、研发网 `vcs`，以及容器化 `uhdm`、`rtl`、`scc`、`rocky`。
+角色包括本地 `agent`，以及本仓库维护的容器化 `uhdm`、`rtl`、`scc`、`rocky`。项目原生命令和商业 EDA wrapper 直接调用，不经过 `eda-run`。
 大型镜像下载、SCC 重编和长时间商业 EDA 作业由用户显式启动。
 
 如需固定工具位置，复制 `env/toolchain.env.example` 到工作目录外并设置：
