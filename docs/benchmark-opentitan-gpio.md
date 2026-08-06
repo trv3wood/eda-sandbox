@@ -43,8 +43,7 @@ OpenTitan GPIO 是合适的中等规模 IP：它有技术规格、寄存器描�
 
 ## 用于本后端的推荐方式
 
-- 模式使用 `patch`。
-- requirement 按“寄存器语义、滤波算法、重配置、interrupt observable、兼容性”拆成稳定 ID。
-- edit target 只选择 GPIO 模板中的 filter process/instance；自动生成的 reg files 由 OpenTitan regtool 产生，不交给 LLM patch。
-- OpenTitan 原生 test commands 填入 handoff `verification`，缺少商业 simulator 时至少运行 reggen consistency、pyslang/Verilator lint 和可用的开源编译门。
-
+- 将上述需求和验收场景直接保存到 `task.md`。
+- `allowed_changes` 只包含 GPIO 源模板、HJSON、文档和相关 DV；自动生成的寄存器文件通过 OpenTitan regtool 更新。
+- 在修改前运行 `eda-harness snapshot`，最终用 integrity gate 检查是否误改无关文件。
+- 把 OpenTitan 原生 reggen、lint、compile 和目标 DV 命令写入 `harness.yaml`；缺少商业 simulator 时报告 `blocked`，不要把较低层验证描述为完整通过。

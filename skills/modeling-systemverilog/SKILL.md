@@ -1,37 +1,32 @@
 ---
 name: modeling-systemverilog
-description: Build evidence-backed SystemVerilog interface, hierarchy, and bounded patch scaffolds from specifications, register maps, existing RTL, a canonical graph, and a content-locked RTL handoff. Use when creating a new RTL module contract, reconstructing hierarchy wiring, preparing an existing .v/.sv design for a controlled LLM modification, or verifying that an RTL edit stayed within declared syntax nodes and structural deltas.
+description: Implement and verify SystemVerilog interfaces, hierarchy, modules, and bounded RTL changes from a task, specifications, register maps, existing RTL, and available EDA tools. Use for new RTL or modifications that need syntax, elaboration, structural, lint, compile, and simulation validation.
 ---
 
-# SystemVerilog Modeling
+# SystemVerilog 编码增强
 
-Use the deterministic CLI for graph, checkpointing, generation, edit application, and verification. Use agent reasoning only to complete evidence-backed contracts and replacement text; never invent missing interface or behavior.
+让 Agent 直接理解任务并编写、修改 RTL；让 harness 负责工具发现、任务基线、改动范围和验证结果。
 
-## Workflow
+## 工作流
 
-1. Read `references/workflow.md` and `references/rtl-handoff.md`.
-2. Initialize/extract with `scripts/systemverilog-agent`. With RTL inputs, build the pyslang source index; never replace a failed AST frontend with regex extraction.
-3. Run `architect PROJECT --mode interface|hierarchy|patch` and complete `.systemc-agent/contracts/rtl-handoff.yaml`.
-4. Resolve all RTL conflicts and validate. The default optional-review flow creates an automatic content checkpoint at generation; use `approve PROJECT --approver NAME` only for a named review or `review_gate: required`.
-5. Run `generate PROJECT`. Work only in `.systemc-agent/rtl/worktree/`; never edit the original source tree.
-6. For each generated or source edit target, produce `edits.json` with the exact target ID, base digest, replacement text, and requirement IDs. Apply it only through `apply-edits`.
-7. Run `verify PROJECT`. Report parse/elaboration, structural delta, lint, compile, and existing simulation tests separately. A missing tool or test is `blocked`, not passed.
+1. 阅读 `references/workflow.md`，检查用户任务、规格、寄存器描述、filelist、宏/include、现有 RTL/DV 和原生构建命令。
+2. 把目标、约束、兼容行为、允许修改范围和验收条件整理到 `task.md`。冲突或缺失语义必须引用原始位置向用户确认。
+3. 运行 `eda-harness discover PROJECT`。根据工程实际选择通用 EDA 或项目原生工具，harness 不会自动替你选路。
+   缺少任务所需工具或激活信息时，使用 `eda-tool-assistant` 向用户确认并准备外置配置。
+4. 若任务需要改代码或运行多项验收，建立一次最小 `harness.yaml`，记录允许修改范围和最终选定的项目验证命令；在首个代码修改前运行 `eda-harness snapshot PROJECT`。只做环境盘点时不需要它。
+5. 直接修改原工程。使用 AST/CST 或 elaborated 数据导航复杂结构。
+6. 迭代运行局部检查，最后用 `eda-harness verify PROJECT` 检查越界变化以及 syntax、elaboration、lint、compile 和 simulation。
 
-## Mode Policy
+## RTL 原则
 
-- `interface`: emit only exact imports, parameters, ports, and evidence-marked TODO regions from the content-locked handoff.
-- `hierarchy`: additionally emit declarations, named parameter bindings, named port connections, and child instances. Do not infer connections from similar names.
-- `patch`: copy the project into the isolated worktree and edit only declared process, continuous-assignment, or instance CST nodes.
-- Keep complete-project reverse printing, macro-body edits without a single source span, and package/class/interface/function/task/generate rewrites unsupported in v1.
+- 尊重工程原有 filelist 顺序、`-f/-F` 语义、working directory、include 路径、defines 和代码生成边界。
+- 修改已有 RTL 时先定位明确的语法节点和影响面；生成文件应通过工程原生 generator 更新，不手改派生产物。
+- 接口、层次、时序、复位、寄存器副作用和验证 observable 只能来自任务与源资料，不能由相似命名猜测。
+- 对 patch 任务在 `allowed_changes` 中收紧目录或文件；harness 的基线 diff 负责发现范围外新增、修改和删除。
+- 工具缺失报告为 `blocked`，不能当作通过；不得削弱 lint、仿真或用户验收条件来获得绿色结果。
 
-## Evidence and Role Boundaries
+## 工具原则
 
-- Treat Spec, register maps, and RTL as ground-truth evidence. Cite canonical graph entity IDs or deterministic text-unit IDs for every target and requirement.
-- Treat pyslang CST/source spans as source-navigation facts. UHDM/VPI is an optional elaborated-identity and structure cross-check, not a source-code generator.
-- The Architect owns `rtl-handoff.yaml`, conflicts, structure expectations, and acceptance scenarios.
-- The Implementer consumes only the content-locked handoff and bounded edit context. Return gaps to the Architect; do not inspect unrelated RTL to choose behavior.
-- The Verifier must not weaken lint, compile, structural, or simulation checks to make an implementation pass.
-
-## Tool Policy
-
-Install the local RTL extra for pyslang. Use configured project commands for lint, compile, and simulation. Do not launch large container builds or long commercial EDA jobs automatically; provide the exact command for the user to run.
+- 工具视图失败必须如实报告。
+- 优先调用项目已有 lint/compile/simulation 命令；需要可重复验收时，将最终 argv 记录在任务的 `harness.yaml` 中。
+- 不自动启动长时间商业 EDA 作业、下载大型镜像或改动原工程以外的系统配置。

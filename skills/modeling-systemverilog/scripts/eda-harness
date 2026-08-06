@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+script_path="$(realpath -- "${BASH_SOURCE[0]}")"
+skill_dir="$(cd -- "$(dirname -- "$script_path")/.." && pwd -P)"
+repo_root="${EDA_HARNESS_ROOT:-$(cd -- "$skill_dir/../.." && pwd -P)}"
+if [[ -d "$repo_root/src/eda_harness" ]]; then
+  export PYTHONPATH="$repo_root/src${PYTHONPATH:+:$PYTHONPATH}"
+fi
+exec python3 -m eda_harness.cli "$@"

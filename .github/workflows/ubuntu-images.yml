@@ -57,7 +57,7 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.target }}
           cache-to: type=gha,mode=max,scope=${{ matrix.target }}
       - name: Smoke test
-        run: docker run --rm "$IMAGE" bash /opt/systemc-agent/scripts/regress.sh "${{ matrix.profile }}"
+        run: docker run --rm "$IMAGE" bash /opt/eda-harness/scripts/regress.sh "${{ matrix.profile }}"
       - name: Enforce image size
         env:
           MAX_MB: ${{ matrix.max_mb }}

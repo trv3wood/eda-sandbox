@@ -1,61 +1,36 @@
-# RTL Backend Workflow
+# SystemVerilog 任务与验证
 
-The existing project directory and `manifest.yaml` remain the unit of work. TLM artifacts and commands remain compatible.
-
-```text
-.systemc-agent/
-  graph/
-  contracts/
-    rtl-handoff.yaml
-    rtl-conflicts.yaml
-    rtl-approval.yaml
-    rtl-checkpoint.yaml
-    rtl-testbench.yaml        # optional existing-test registry
-  rtl/
-    source-index.jsonl
-    baseline/
-    worktree/
-    generation.yaml
-    edits.json
-    changes.diff
-    verification.json
-```
-
-Typical sequence:
+直接工作流：
 
 ```bash
-scripts/systemverilog-agent init PROJECT --name NAME --top TOP \
-  --docx spec.docx --xlsx registers.xlsx --rtl rtl
-scripts/systemverilog-agent extract PROJECT --skip-tools
-# Complete the configured canonical RTL producer and graph finalization first.
-uv sync --extra rtl
-scripts/systemverilog-agent architect PROJECT --mode patch
-# Complete rtl-handoff.yaml and resolve rtl-conflicts.yaml.
-scripts/systemverilog-agent architect PROJECT --validate
-# 可选：正式评审或 review_gate=required 时执行 approve。
-# scripts/systemverilog-agent approve PROJECT --approver NAME
-scripts/systemverilog-agent generate PROJECT
-scripts/systemverilog-agent apply-edits PROJECT edits.json
-scripts/systemverilog-agent verify PROJECT
+eda-harness discover PROJECT
+# 写 task.md 与 harness.yaml
+eda-harness snapshot PROJECT
+# Agent 直接读写工程
+eda-harness verify PROJECT
 ```
 
-默认 `review_gate: optional`。`generate` 自动创建内容 checkpoint，哈希 project manifest、canonical graph/current inputs、source index/current source digests、RTL handoff、conflicts 和 test manifest。后续变化会阻断 edit/verify。设置 `review_gate: required` 时必须先有具名 approval。
+典型 patch 配置：
 
-`generate` refuses to overwrite an existing baseline or worktree. Preserve or explicitly remove the prior generated tree before starting a new checkpointed generation.
-
-The LLM edit protocol is JSON:
-
-```json
-{
-  "edits": [
-    {
-      "target_id": "syn-... or todo-RTL-FUNC-001",
-      "base_sha256": "...",
-      "replacement_text": "always_comb begin ... end",
-      "requirement_ids": ["RTL-FUNC-001"]
-    }
-  ]
-}
+```yaml
+schema_version: 1
+workspace: .
+allowed_changes:
+  - rtl/gpio.sv
+  - dv/gpio_filter_test.sv
+checks:
+  - id: lint
+    category: lint
+    command: [verilator, --lint-only, -f, rtl/top.f, --top-module, gpio]
+  - id: compile
+    category: build
+    command: [make, compile]
+  - id: gpio-filter-test
+    category: test
+    command: [make, test, TEST=gpio_filter]
+    depends_on: [compile]
 ```
 
-Edits are byte-range replacements applied from the end of each file toward the beginning. Duplicate targets, overlapping ranges, stale digests, unsafe paths, unknown requirements, or changes outside declared files fail closed.
+本仓库维护的专用容器环境可以通过 `scripts/eda-run` 调用；研发网、商业工具和工程原生 wrapper 直接使用项目提供的命令。Harness 不解析 RTL、不重建 filelist，也不推断验证命令。
+
+Snapshot 记录修改前的已有 dirty state；最终 integrity gate 只检查 snapshot 后的增量。新增、删除、重命名和修改都必须匹配 snapshot 时锁定的 `allowed_changes`。

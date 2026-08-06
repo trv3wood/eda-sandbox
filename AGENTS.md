@@ -2,30 +2,31 @@
 
 ## Project Structure & Module Organization
 
-The Python package lives in `src/tlm_agent/`. `cli.py` defines the
-command-line workflow; extraction, contract handling, generation, and
-verification are separated into `extractors.py`, `workflow.py`, `generator.py`,
-and `verifier.py`. Tests and synthetic RTL/spec fixtures are under `tests/`.
+The Python harness lives in `src/eda_harness/`. `cli.py` defines the command
+line; discovery, configuration, snapshotting, and verification are separated
+into focused modules. Environment assistance lives in
+`skills/eda-tool-assistant/`; the thin direct-modeling skills live under
+`skills/modeling-systemc-tlm/` and `skills/modeling-systemverilog/`. Tests are
+under `tests/`.
 
 Container definitions are in `Dockerfile.ubuntu`, `Dockerfile.rocky8`, and
-`compose.yaml`. Reusable commands belong in `scripts/`. The canonical Codex
-skill is in `skills/modeling-systemc-tlm/`; Claude adapters are in
-`integrations/claude/agents/`. Keep generated project data outside the package,
-normally in a mounted project directory under `/workspace`.
+`compose.yaml`. Reusable commands belong in `scripts/`; Claude adapters are in
+`integrations/claude/agents/`. Keep task projects and `.eda-harness` artifacts
+outside the package, normally in a mounted directory under `/workspace`.
 
 ## Build, Test, and Development Commands
 
 ```bash
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 python3 -m compileall -q src tests
-PYTHONPATH=src python3 -m tlm_agent.cli --help
-podman-compose run --rm eda-agent bash scripts/regress.sh
+PYTHONPATH=src python3 -m eda_harness.cli --help
+uv run bash scripts/regress.sh agent
 ```
 
-The first command runs the workflow tests; the second catches Python syntax
+The first command runs the harness tests; the second catches Python syntax
 errors; the third exercises CLI registration. The regression script checks the
 container toolchain. Build only the image needed, for example
-`podman-compose build eda-agent`. SCC and container builds may download or
+`podman-compose build eda-uhdm`. SCC and container builds may download or
 compile large dependencies; agents must ask the user to run commands expected
 to block for a long time.
 
@@ -41,10 +42,10 @@ is currently enforced, so keep changes PEP 8-compatible and run `compileall`.
 ## Testing Guidelines
 
 Tests use the standard `unittest` framework and follow `test_*.py` naming.
-Add focused fixtures under `tests/fixtures/<design>/`. Cover both success and
-gate behavior, especially conflicts, approval hashes, stale approvals, and RTL
-discovery for `.v` and `.sv`. Tests should not require network access or
-commercial EDA tools.
+Add focused fixtures under `tests/fixtures/<design>/`. Cover discovery,
+configuration validation, existing dirty baselines, allowed-change integrity,
+timeouts, dependencies, and passed/failed/blocked aggregation. Tests should not
+require network access or commercial EDA tools.
 
 ## Commit & Pull Request Guidelines
 

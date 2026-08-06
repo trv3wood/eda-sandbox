@@ -1,0 +1,4 @@
+interface:
+  display_name: "EDA Tool Assistant"
+  short_description: "Discover and configure EDA tool environments"
+  default_prompt: "Use $eda-tool-assistant to discover the available EDA tools, ask me about inaccessible environments, and prepare a safe toolchain configuration."

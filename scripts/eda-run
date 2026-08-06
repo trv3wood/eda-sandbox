@@ -12,8 +12,7 @@ Usage:
   scripts/eda-run [OPTIONS] ROLE --shell
 
 Roles:
-  agent       Local uv workflow and graph/spec tooling
-  vcs         Local VCS/VPI RTL graph production（继承当前研发网许可证环境）
+  agent       Local uv workflow and harness tooling
   uhdm        Surelog and direct UHDM Python queries
   rtl         RTL simulation and differential-test tooling
   scc         SystemC/SCC compilation and verification
@@ -36,8 +35,7 @@ Environment:
 
 Examples:
   scripts/eda-run uhdm surelog --version
-  scripts/eda-run --work workspace vcs eda-rtl-produce /workspace/projects/example
-  scripts/eda-run --work workspace agent systemc-tlm-agent status /workspace/projects/example
+  scripts/eda-run --work workspace agent eda-harness discover /workspace/project
   scripts/eda-run uhdm eda-uhdm run /workspace/design.uhdm \
     /workspace/query.py --output-dir /workspace/query-output
   scripts/eda-run scc --shell
@@ -104,7 +102,7 @@ if [[ "${1:-}" == "--shell" ]]; then
 fi
 
 case "${role}" in
-  agent|vcs)
+  agent)
     ;;
   uhdm)
     role_image="${EDA_UHDM_IMAGE:-}"
@@ -142,7 +140,7 @@ work_dir="$(realpath "${work_dir}")"
   exit 2
 }
 
-if [[ "${role}" == "agent" || "${role}" == "vcs" ]]; then
+if [[ "${role}" == "agent" ]]; then
   if [[ "${shell_mode}" == true ]]; then
     [[ $# -eq 0 ]] || {
       printf 'ERROR: --shell does not accept a command\n' >&2
@@ -154,11 +152,6 @@ if [[ "${role}" == "agent" || "${role}" == "vcs" ]]; then
     printf 'ERROR: COMMAND is required unless --shell is used\n' >&2
     exit 2
   }
-  uv_tool="$(tool_path EDA_TOOL_UV uv)"
-  command -v "${uv_tool}" >/dev/null 2>&1 || {
-    printf 'ERROR: uv is required for the local agent role; run uv sync\n' >&2
-    exit 1
-  }
   local_args=()
   for argument in "$@"; do
     case "${argument}" in
@@ -167,6 +160,11 @@ if [[ "${role}" == "agent" || "${role}" == "vcs" ]]; then
       *) local_args+=("${argument}") ;;
     esac
   done
+  uv_tool="$(tool_path EDA_TOOL_UV uv)"
+  command -v "${uv_tool}" >/dev/null 2>&1 || {
+    printf 'ERROR: uv is required for the local agent role; run uv sync\n' >&2
+    exit 1
+  }
   exec "${uv_tool}" run --project "${repo_root}" -- "${local_args[@]}"
 fi
 
@@ -197,35 +195,6 @@ if [[ "${engine##*/}" == "podman" ]]; then
   container_args+=(--userns=keep-id -v "${work_dir}:/workspace:Z")
 else
   container_args+=(--user "$(id -u):$(id -g)" -v "${work_dir}:/workspace")
-fi
-
-# The UHDM image owns the native binding, while the producer policy and
-# exporter remain versioned with this checkout.  Avoid relying on a Python
-# package baked into an older image when invoking the producer entry point.
-if [[ "${role}" == "uhdm" && "${1:-}" == "eda-uhdm-produce" ]]; then
-  if [[ "${engine##*/}" == "podman" ]]; then
-    container_args+=(-v "${repo_root}:/opt/eda-sandbox:ro,Z")
-  else
-    container_args+=(-v "${repo_root}:/opt/eda-sandbox:ro")
-  fi
-  container_args+=(-e "PYTHONPATH=/opt/eda-sandbox/src")
-  shift
-  set -- python -c \
-    'from tlm_agent.tool_producers import uhdm_main; raise SystemExit(uhdm_main())' \
-    "$@"
-fi
-
-# SCC owns the native SystemC/minres-SCC installation.  The CLI and verifier
-# policy, however, must match the checkout that generated the model.
-if [[ "${role}" == "scc" && "${1:-}" == "systemc-tlm-agent" ]]; then
-  if [[ "${engine##*/}" == "podman" ]]; then
-    container_args+=(-v "${repo_root}:/opt/eda-sandbox:ro,Z")
-  else
-    container_args+=(-v "${repo_root}:/opt/eda-sandbox:ro")
-  fi
-  container_args+=(-e "PYTHONPATH=/opt/eda-sandbox/src")
-  shift
-  set -- python3 -m tlm_agent.cli "$@"
 fi
 
 if [[ "${shell_mode}" == true ]]; then

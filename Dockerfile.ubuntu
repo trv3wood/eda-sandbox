@@ -43,10 +43,10 @@ RUN /opt/conda/envs/uhdm/bin/python -c "import uhdm; print(uhdm.Serializer)"
 FROM ubuntu-base AS eda-uhdm
 ARG IMAGE_REVISION=unknown
 COPY --from=uhdm-python-builder /opt/conda/envs/uhdm /opt/conda/envs/uhdm
-COPY pyproject.toml /opt/systemc-agent/
-COPY src /opt/systemc-agent/src
-COPY scripts/regress*.sh /opt/systemc-agent/scripts/
-RUN /opt/conda/envs/uhdm/bin/python -m pip install --no-deps /opt/systemc-agent
+COPY pyproject.toml /opt/eda-harness/
+COPY src /opt/eda-harness/src
+COPY scripts/regress*.sh /opt/eda-harness/scripts/
+RUN /opt/conda/envs/uhdm/bin/python -m pip install --no-deps /opt/eda-harness
 ENV MAMBA_ROOT_PREFIX=/opt/conda \
     PATH=/opt/conda/envs/uhdm/bin:/usr/local/bin:/usr/bin \
     EDA_TOOL_SURELOG=/opt/conda/envs/uhdm/bin/surelog \
@@ -275,12 +275,12 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 COPY --from=scc-builder /opt/scc /opt/scc
 COPY --from=scc-builder /opt/scc-deps /opt/scc-deps
-COPY pyproject.toml /opt/systemc-agent/
-COPY src /opt/systemc-agent/src
-COPY scripts/regress*.sh /opt/systemc-agent/scripts/
+COPY pyproject.toml /opt/eda-harness/
+COPY src /opt/eda-harness/src
+COPY scripts/regress*.sh /opt/eda-harness/scripts/
 # 最终 SDK 仅复制部署产物；Conan CMakeDeps 的 build/generators 目录不是
 # 稳定交付接口。Boost 必须由部署后的头文件和库通过 FindBoost 发现。
-RUN python3 -m pip install --break-system-packages --no-cache-dir /opt/systemc-agent
+RUN python3 -m pip install --break-system-packages --no-cache-dir /opt/eda-harness
 ENV PATH=/opt/scc/bin:/usr/local/bin:/usr/bin \
     EDA_TOOL_CMAKE=/usr/bin/cmake \
     EDA_TOOL_CXX=/usr/bin/c++ \
