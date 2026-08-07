@@ -25,8 +25,11 @@ uv run bash scripts/regress.sh agent
 
 The first command runs the harness tests; the second catches Python syntax
 errors; the third exercises CLI registration. The regression script checks the
-container toolchain. Build only the image needed, for example
-`podman-compose build eda-uhdm`. SCC and container builds may download or
+container toolchain. Container images, including SCC SDK export artifacts, are
+normally built by GitHub Actions; do not build images locally by default. Use
+the CI image or uploaded SDK artifact for validation and installation. A local
+build (for example `podman-compose build eda-uhdm`) is only appropriate when
+the user explicitly requests it. SCC and container builds may download or
 compile large dependencies; agents must ask the user to run commands expected
 to block for a long time.
 

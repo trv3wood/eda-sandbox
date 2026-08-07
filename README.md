@@ -90,3 +90,17 @@ PYTHONPATH=src python3 -m eda_harness.cli --help
 
 容器和 SDK 回归仍可使用 `scripts/regress.sh PROFILE`；详见
 [`docs/harness.md`](docs/harness.md)。
+
+## Ubuntu SCC SDK 导出与宿主机使用
+
+`eda-scc` 镜像还包含可导出的 `/opt/eda-scc-sdk`。CI 会上传
+`eda-scc-ubuntu-sdk.tar.gz` 及其 SHA-256 文件；解压到宿主机 `/opt` 后启用：
+
+```bash
+sudo tar -C /opt -xzf eda-scc-ubuntu-sdk.tar.gz
+source /opt/eda-scc-sdk/activate.sh
+cmake -S PROJECT -B PROJECT/build
+```
+
+SDK 内只包含 `scc/`、`deps/` 和 `activate.sh`，不包含 Conan 缓存或构建目录。
+它面向兼容的 Ubuntu 主机；容器仍是可重复验证的参考环境。

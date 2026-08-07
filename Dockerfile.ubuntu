@@ -267,37 +267,58 @@ RUN set -eu; \
         echo "SCC verify: found ${required_path}" >&2; \
     done
 
+FROM scc-builder AS scc-sdk
+# 只归档最终安装前缀，避免把 Conan 缓存和构建树带入可分发 SDK。
+# 两个 CMake package 前缀均使用相对路径导出，因此整个目录可移动。
+RUN set -eu; \
+    mkdir -p /opt/eda-scc-sdk; \
+    cp -a /opt/scc /opt/eda-scc-sdk/scc; \
+    cp -a /opt/scc-deps /opt/eda-scc-sdk/deps; \
+    printf '%s\n' \
+        '#!/usr/bin/env bash' \
+        'set -Eeuo pipefail' \
+        'eda_scc_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"' \
+        'export EDA_SCC_HOME="${eda_scc_root}"' \
+        'export EDA_SCC_DEPS="${eda_scc_root}/deps"' \
+        'export CMAKE_PREFIX_PATH="${eda_scc_root}/scc:${eda_scc_root}/deps${CMAKE_PREFIX_PATH:+:${CMAKE_PREFIX_PATH}}"' \
+        'export LD_LIBRARY_PATH="${eda_scc_root}/scc/lib:${eda_scc_root}/deps/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"' \
+        > /opt/eda-scc-sdk/activate.sh; \
+    chmod 0755 /opt/eda-scc-sdk/activate.sh; \
+    test -f /opt/eda-scc-sdk/scc/lib/cmake/scc/scc-config.cmake; \
+    test -f /opt/eda-scc-sdk/deps/lib/cmake/SystemCLanguage/SystemCLanguageConfig.cmake
+
 FROM ubuntu-base AS eda-scc
 ARG IMAGE_REVISION=unknown
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         build-essential cmake ninja-build python3 python3-pip && \
     rm -rf /var/lib/apt/lists/*
-COPY --from=scc-builder /opt/scc /opt/scc
-COPY --from=scc-builder /opt/scc-deps /opt/scc-deps
+COPY --from=scc-sdk /opt/eda-scc-sdk /opt/eda-scc-sdk
 COPY pyproject.toml /opt/eda-harness/
 COPY src /opt/eda-harness/src
 COPY scripts/regress*.sh /opt/eda-harness/scripts/
 # 最终 SDK 仅复制部署产物；Conan CMakeDeps 的 build/generators 目录不是
 # 稳定交付接口。Boost 必须由部署后的头文件和库通过 FindBoost 发现。
 RUN python3 -m pip install --break-system-packages --no-cache-dir /opt/eda-harness
-ENV PATH=/opt/scc/bin:/usr/local/bin:/usr/bin \
+ENV PATH=/opt/eda-scc-sdk/scc/bin:/usr/local/bin:/usr/bin \
     EDA_TOOL_CMAKE=/usr/bin/cmake \
     EDA_TOOL_CXX=/usr/bin/c++ \
     EDA_TOOL_CTEST=/usr/bin/ctest \
     EDA_TOOL_NINJA=/usr/bin/ninja \
     EDA_CXX_STANDARD=17 \
-    EDA_SCC_HOME=/opt/scc \
-    EDA_SCC_DEPS=/opt/scc-deps \
-    CMAKE_PREFIX_PATH=/opt/scc:/opt/scc-deps \
-    LD_LIBRARY_PATH=/opt/scc/lib:/opt/scc-deps/lib \
+    EDA_SCC_HOME=/opt/eda-scc-sdk \
+    EDA_SCC_DEPS=/opt/eda-scc-sdk/deps \
+    CMAKE_PREFIX_PATH=/opt/eda-scc-sdk/scc:/opt/eda-scc-sdk/deps \
+    LD_LIBRARY_PATH=/opt/eda-scc-sdk/scc/lib:/opt/eda-scc-sdk/deps/lib \
     IMAGE_REVISION=${IMAGE_REVISION}
 RUN test -f \
-    /opt/scc-deps/lib/cmake/SystemCLanguage/SystemCLanguageConfig.cmake && \
-    test -f /opt/scc-deps/lib/cmake/lz4/lz4-config.cmake && \
-    test -f /opt/scc-deps/lib/cmake/fmt/fmt-config.cmake && \
-    test -f /opt/scc-deps/lib/cmake/spdlog/spdlog-config.cmake && \
-    test -f /opt/scc-deps/lib/cmake/yaml-cpp/yaml-cpp-config.cmake && \
-    test -f /opt/scc-deps/lib/cmake/libbacktrace/libbacktrace-config.cmake && \
-    test -f /opt/scc-deps/lib/cmake/zstd/zstd-config.cmake
+    /opt/eda-scc-sdk/activate.sh && \
+    test -f /opt/eda-scc-sdk/scc/lib/cmake/scc/scc-config.cmake && \
+    test -f /opt/eda-scc-sdk/deps/lib/cmake/SystemCLanguage/SystemCLanguageConfig.cmake && \
+    test -f /opt/eda-scc-sdk/deps/lib/cmake/lz4/lz4-config.cmake && \
+    test -f /opt/eda-scc-sdk/deps/lib/cmake/fmt/fmt-config.cmake && \
+    test -f /opt/eda-scc-sdk/deps/lib/cmake/spdlog/spdlog-config.cmake && \
+    test -f /opt/eda-scc-sdk/deps/lib/cmake/yaml-cpp/yaml-cpp-config.cmake && \
+    test -f /opt/eda-scc-sdk/deps/lib/cmake/libbacktrace/libbacktrace-config.cmake && \
+    test -f /opt/eda-scc-sdk/deps/lib/cmake/zstd/zstd-config.cmake
 CMD ["/bin/bash"]

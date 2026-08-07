@@ -50,7 +50,7 @@ jobs:
         with:
           context: .
           file: Dockerfile.ubuntu
-          target: scc-builder
+          target: scc-sdk
           platforms: linux/amd64
           cache-from: |
             type=gha,scope=eda-scc-compile
@@ -77,37 +77,44 @@ jobs:
             "$IMAGE" bash -lc '
             set -Eeuo pipefail
             echo "=== SCC SDK Boost inventory ==="
-            find /opt/scc-deps -type f \
+            find /opt/eda-scc-sdk/deps -type f \
               \( -name "libboost_*.a" -o -name "libboost_*.so*" \) -printf "%p\n" | sort
             echo "=== Relocatable dependency configs ==="
             for config in \
-              /opt/scc-deps/lib/cmake/lz4/lz4-config.cmake \
-              /opt/scc-deps/lib/cmake/fmt/fmt-config.cmake \
-              /opt/scc-deps/lib/cmake/spdlog/spdlog-config.cmake \
-              /opt/scc-deps/lib/cmake/yaml-cpp/yaml-cpp-config.cmake \
-              /opt/scc-deps/lib/cmake/libbacktrace/libbacktrace-config.cmake \
-              /opt/scc-deps/lib/cmake/zstd/zstd-config.cmake; do
+              /opt/eda-scc-sdk/deps/lib/cmake/lz4/lz4-config.cmake \
+              /opt/eda-scc-sdk/deps/lib/cmake/fmt/fmt-config.cmake \
+              /opt/eda-scc-sdk/deps/lib/cmake/spdlog/spdlog-config.cmake \
+              /opt/eda-scc-sdk/deps/lib/cmake/yaml-cpp/yaml-cpp-config.cmake \
+              /opt/eda-scc-sdk/deps/lib/cmake/libbacktrace/libbacktrace-config.cmake \
+              /opt/eda-scc-sdk/deps/lib/cmake/zstd/zstd-config.cmake; do
               echo "--- $config"
               sed -n "1,160p" "$config"
             done
             echo "=== SCC exported dependencies ==="
-            grep -n "find_dependency" /opt/scc/lib/cmake/scc/scc-config.cmake || true
+            grep -n "find_dependency" /opt/eda-scc-sdk/scc/lib/cmake/scc/scc-config.cmake || true
             echo "=== SCC exported target link interfaces ==="
             grep -R -n "INTERFACE_LINK_LIBRARIES" \
-              /opt/scc/lib/cmake/scc \
-              /opt/scc/lib/cmake/lwtr \
-              /opt/scc/lib/cmake/fstapi 2>/dev/null || true
+              /opt/eda-scc-sdk/scc/lib/cmake/scc \
+              /opt/eda-scc-sdk/scc/lib/cmake/lwtr \
+              /opt/eda-scc-sdk/scc/lib/cmake/fstapi 2>/dev/null || true
           '
           docker run --rm \
             -e EDA_SCC_CMAKE_DEBUG_PACKAGES="${{ inputs.cmake_debug_packages || '' }}" \
-            "$IMAGE" bash /opt/systemc-agent/scripts/regress.sh scc
+            "$IMAGE" bash /opt/eda-harness/scripts/regress.sh scc
           docker run --rm "$IMAGE" bash -lc '
             set -Eeuo pipefail
             echo "=== SCC SDK Boost inventory ==="
-            find /opt/scc-deps -type f \
+            find /opt/eda-scc-sdk/deps -type f \
               \( -name "libboost_*.a" -o -name "libboost_*.so*" \) -printf "%p\n" | sort
             echo "=== SCC exported dependencies ==="
-            grep -n "find_dependency" /opt/scc/lib/cmake/scc/scc-config.cmake || true
+            grep -n "find_dependency" /opt/eda-scc-sdk/scc/lib/cmake/scc/scc-config.cmake || true
+          '
+          docker run --rm "$IMAGE" bash -lc '
+            set -Eeuo pipefail
+            mkdir -p /tmp/sdk-user/.local
+            mv /opt/eda-scc-sdk /tmp/sdk-user/.local/eda-scc-sdk
+            source /tmp/sdk-user/.local/eda-scc-sdk/activate.sh
+            bash /opt/eda-harness/scripts/regress.sh scc
           '
           bytes="$(docker image inspect "$IMAGE" --format '{{.Size}}')"
           test "$bytes" -le "$((2 * 1024 * 1024 * 1024))"
@@ -119,3 +126,19 @@ jobs:
             docker push "${repository}:${GITHUB_REF_NAME}"
             docker push "${repository}:latest"
           fi
+      - name: Export Ubuntu SCC SDK
+        run: |
+          container_id="$(docker create "$IMAGE")"
+          docker cp "${container_id}:/opt/eda-scc-sdk" .
+          docker rm "${container_id}"
+          tar -C . -czf eda-scc-ubuntu-sdk.tar.gz eda-scc-sdk
+          sha256sum eda-scc-ubuntu-sdk.tar.gz > eda-scc-ubuntu-sdk.sha256
+      - name: Upload Ubuntu SCC SDK
+        uses: actions/upload-artifact@v4
+        with:
+          name: eda-scc-ubuntu-sdk-${{ github.sha }}
+          path: |
+            eda-scc-ubuntu-sdk.tar.gz
+            eda-scc-ubuntu-sdk.sha256
+          if-no-files-found: error
+          retention-days: 90
