@@ -11,7 +11,7 @@ description: Implement and verify loosely timed SystemC TLM-2.0 models directly 
 
 1. 阅读 `references/workflow.md` 和 `references/tooling.md`，检查用户任务、规格、寄存器表、RTL、测试和已有构建系统。
 2. 将用户目标、范围、约束和验收条件忠实整理到 `task.md`；不确定的设计语义必须回到原始资料或询问用户，不得自行发明。
-3. 运行 `eda-harness discover PROJECT`，根据报告选择本地、研发网或容器工具。报告只是建议，不能替代任务相关判断。
+3. 运行 `eda-harness discover PROJECT`，再按 `references/tooling.md` 的能力矩阵选择工程原生、商业或开源工具；在 `task.md` 记录选中的后端、命令、理由和不可接受的降级。报告只是建议，不能替代任务相关判断。
    缺少任务所需工具或激活信息时，使用 `eda-tool-assistant` 向用户确认并准备外置配置。
 4. 若任务需要改代码或运行多项验收，建立一次最小 `harness.yaml`：只声明允许修改范围和最终选定的项目验证命令；然后在首个代码改动前运行 `eda-harness snapshot PROJECT`。只做环境盘点时不需要它。
 5. **语义抽取与证据**:对每个关键语义决策（寄存器副作用、影子配置、寻址、仲裁...），定位 RTL 源 (`file:line`) 与spec 章节，并用 EDA 工具交叉验证理解 (见 `references/tooling.md` 的工具映射)--仿真弹奏、波形或查询至少用一种，**不能只靠读代码**。完成架构与功能推理后，在项目 `docs/` 写两份审计文档：
@@ -35,5 +35,7 @@ description: Implement and verify loosely timed SystemC TLM-2.0 models directly 
 ## 工具策略
 
 - `scripts/eda-run` 只用于本仓库维护的 UHDM、RTL、SCC 等专用环境。商业工具和工程原生命令直接按项目既有方式调用。
-- UHDM 查询使用官方 Python binding 和薄 `eda-uhdm` runner，查询结果用于导航和交叉检查，不替代 Spec/RTL 原文。
+- 对已具备 Synopsys、Cadence 或 Siemens 流程的项目，优先使用其已有的编译/elaboration、仿真、波形和 lint 命令；这些命令是设计语义验证的主后端。
+- UHDM 查询是可选的开源导航后端，仅在项目已有可用 UHDM 输入或查询确有价值时使用。没有容器或 UHDM 不能阻塞商业工具已经覆盖的语义验证；也不得假定商业工具能导出或读取 UHDM。
+- 对同一验收项不得静默从商业工具降级到 UHDM、verible 或纯文本搜索。变更后端、覆盖范围或证据强度时，须先更新 `task.md` 和 `harness.yaml`，并如实标记缺失能力。
 - 不自动拉取大型镜像、重编 minres-SCC 或启动长时间商业 EDA 作业；给出准确命令让用户决定。
