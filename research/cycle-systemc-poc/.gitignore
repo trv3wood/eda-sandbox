@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eda-harness/
+.env
+build/
+cmake-build-*/
+obj_dir/
+*.vcd
+*.fst
+*.csv
+*.log
+core.mlir
+*.mlirbc
+hierarchy.json

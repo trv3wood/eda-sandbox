@@ -1,5 +1,27 @@
 # Cycle-Level SystemC PoC 架构
 
+## 混合分区路径
+
+```text
+SystemVerilog filelist
+        │ circt-verilog --ir-hw
+        ▼
+canonical HW MLIR ──► hierarchy.json ──► 生成的 SystemC 结构壳
+                                             │
+                         ┌───────────────────┴──────────────────┐
+                         ▼                                      ▼
+              Verilator --sc 分区                    原生 SystemC 替代分区
+```
+
+- `hybrid_manifest.py` 只读取模块签名、实例、SSA 连接和顶层输出；行为 operation 只允许
+  存在于叶模块中。
+- `hierarchy.json` 是提取器与生成器之间的稳定契约；未来 C++ CIRCT pass 替换文本
+  parser 时不改变下游。
+- `systemc_codegen.py` 生成端口、`sc_signal`、实例和输出转发，不生成行为。
+- ABI 固定为 1 位 `bool`、2～64 位 `sc_uint<W>`；Verilator 端使用
+  `--pins-sc-uint`，原生替代模块使用相同端口类型。
+- SystemC kernel 统一调度所有分区，结构壳不调用 `eval()`。
+
 ## 分层
 
 ```text
@@ -46,6 +68,7 @@
 ## 验证边界
 
 - 当前 `CycleModelAdapter` 是独立 C++ 语义基线，不是假称由 CIRCT 生成的 SystemC。
-- CIRCT 可用后，生成模型必须接入相同 stimulus，并增加逐周期 CSV trace 比较。
-- TLM contract 已在 SCC 容器的 SystemC SDK 中编译运行通过；宿主机仍未安装 SDK。
+- CIRCT 层次壳已接入相同 stimulus，单体/全 Verilated/混合三路逐周期 CSV trace
+  在 1000 笔固定 seed 事务上完全一致。
+- TLM contract 已在 SCC 容器和宿主机 SystemC 3.0.2 中编译运行通过。
 - 没有真实项目 RTL/spec 前，本架构只证明方法和接口可工作。

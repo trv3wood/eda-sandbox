@@ -1,0 +1,65 @@
+schema_version: 1
+workspace: .
+allowed_changes:
+  - CMakeLists.txt
+  - README.md
+  - config/**
+  - docs/**
+  - include/**
+  - rtl/**
+  - scripts/**
+  - src/**
+  - tests/**
+  - tools/**
+  - task.md
+  - harness.yaml
+checks:
+  - id: python-syntax
+    category: syntax
+    command: [python3, -m, compileall, -q, tools]
+  - id: hierarchy-unit
+    category: test
+    command: [python3, -m, unittest, discover, -s, tests/python, -v]
+  - id: rtl-lint
+    category: lint
+    command: [verilator, --lint-only, --top-module, hybrid_stream_accel, rtl/hybrid_stream_accel.sv]
+  - id: hierarchy-generate
+    category: build
+    command: [python3, tools/generate_hybrid.py, --circt-verilog, circt-verilog, --filelist, rtl/hybrid.f, --top, hybrid_stream_accel, --config, config/hybrid.json, --work, /tmp/cycle-systemc-hierarchy]
+    depends_on: [python-syntax, hierarchy-unit, rtl-lint]
+  - id: host-configure
+    category: build
+    command: [cmake, -S, ., -B, /tmp/cycle-systemc-host-build, -DBUILD_SYSTEMC_POC=OFF, -DCMAKE_BUILD_TYPE=Release]
+  - id: host-build
+    category: build
+    command: [cmake, --build, /tmp/cycle-systemc-host-build, --parallel]
+    depends_on: [host-configure]
+  - id: host-test
+    category: test
+    command: [ctest, --test-dir, /tmp/cycle-systemc-host-build, --output-on-failure]
+    depends_on: [host-build]
+  - id: circt-frontend
+    category: custom
+    command: [circt-verilog, --version]
+  - id: circt-conversion
+    category: custom
+    command: [circt-opt, --version]
+  - id: circt-emission
+    category: custom
+    command: [circt-translate, --version]
+  - id: systemc-configure
+    category: build
+    command: [cmake, -S, ., -B, /tmp/cycle-systemc-full-build, -DBUILD_SYSTEMC_POC=ON, -DCMAKE_BUILD_TYPE=Release]
+    depends_on: [hierarchy-generate]
+  - id: systemc-build
+    category: build
+    command: [cmake, --build, /tmp/cycle-systemc-full-build, --parallel]
+    depends_on: [systemc-configure]
+  - id: systemc-test
+    category: test
+    command: [ctest, --test-dir, /tmp/cycle-systemc-full-build, --output-on-failure]
+    depends_on: [systemc-build]
+  - id: hybrid-systemc-test
+    category: test
+    command: [python3, tools/run_hybrid.py, --circt-verilog, circt-verilog, --work, /tmp/cycle-systemc-hybrid-run, --transactions, '1000', --seed, '20260809']
+    depends_on: [hierarchy-generate]

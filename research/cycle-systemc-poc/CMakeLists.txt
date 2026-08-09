@@ -21,7 +21,16 @@ enable_testing()
 add_test(NAME model_equivalence COMMAND model_tests)
 
 if(BUILD_SYSTEMC_POC)
-  find_package(SystemCLanguage CONFIG REQUIRED)
+  find_package(SystemCLanguage CONFIG QUIET)
+  if(NOT TARGET SystemC::systemc)
+    find_path(SYSTEMC_INCLUDE_DIR NAMES systemc REQUIRED)
+    find_library(SYSTEMC_LIBRARY NAMES systemc REQUIRED)
+    add_library(SystemC::systemc UNKNOWN IMPORTED)
+    set_target_properties(SystemC::systemc PROPERTIES
+      IMPORTED_LOCATION "${SYSTEMC_LIBRARY}"
+      INTERFACE_INCLUDE_DIRECTORIES "${SYSTEMC_INCLUDE_DIR}"
+    )
+  endif()
   add_library(tlm_adapter src/tlm_adapter.cpp)
   target_include_directories(tlm_adapter PUBLIC include)
   target_link_libraries(tlm_adapter PUBLIC model_core SystemC::systemc)
@@ -30,5 +39,9 @@ if(BUILD_SYSTEMC_POC)
   add_executable(tlm_tests tests/test_tlm.cpp)
   target_link_libraries(tlm_tests PRIVATE tlm_adapter SystemC::systemc)
   add_test(NAME tlm_contract COMMAND tlm_tests)
-endif()
 
+  add_library(stream_accumulator_sc src/stream_accumulator_sc.cpp)
+  target_include_directories(stream_accumulator_sc PUBLIC include)
+  target_link_libraries(stream_accumulator_sc PUBLIC SystemC::systemc)
+  target_compile_options(stream_accumulator_sc PRIVATE -Wall -Wextra -Wpedantic)
+endif()
