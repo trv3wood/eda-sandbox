@@ -35,7 +35,9 @@
 - 后端：启用 slang frontend 的 `circt-verilog`、`circt-opt`、
   `circt-translate`。
 - 能力：SV elaboration、HW/Comb/Seq IR、HW-to-SystemC、SystemC C++ emission。
-- 当前状态：本进程 PATH 中不可用，属于 required blocked。
+- 当前状态：官方 firtool-1.154.0 Linux x64 静态工具链已部署到仓库外；8/8 frontend
+  通过，3/8 conversion 通过，但 0/3 conversion 成功用例完成 emission。工具环境可用，
+  backend 能力仍不满足完整转换验收。
 - 不允许降级：Verilator `--sc` 不是人类可维护的纯 SystemC 转换结果。
 
 ### SystemC/TLM
@@ -54,4 +56,5 @@
 - TLM wrapper 覆盖正常请求、非法地址、非法长度和 delay annotation。
 - benchmark 使用 Release 构建、固定 seed、预热和至少五次重复，报告原始数据，
   不预设加速倍数。
-- 缺少 CIRCT/SystemC 时总体结果为 blocked；已能运行的 host-only 测试仍须通过。
+- 缺少 CIRCT/SystemC 时总体结果为 blocked；工具存在但 backend 不支持时记录首个失败
+  operation 并标为 failed，不得回退写成环境 blocked；已能运行的 host-only 测试仍须通过。

@@ -1,7 +1,7 @@
 # Cycle-Level SystemC PoC 语义证据
 
-本文件只记录已经由工具或测试观察到的事实。CIRCT 当前不可用；SystemC/TLM 已在
-本地 SCC 镜像中验证，不把源码推断写成验证结论。
+本文件只记录已经由工具或测试观察到的事实。CIRCT firtool-1.154.0 已完成工具探测和
+八档 feature ladder；SystemC/TLM 已在本地 SCC 镜像中验证，不把源码推断写成验证结论。
 
 ## valid/ready 接收与完成条件
 
@@ -51,7 +51,25 @@
 - RTL 依据：`research/cycle-systemc-poc/rtl/` 的组合、层次、寄存器、FSM、memory、
   parameter、inout 和有状态数据通路八档用例。
 - 规格依据：`task.md` 的五阶段转换验收条件。
-- 工具证据：`run_feature_ladder.py` 在当前环境生成 `blocked` 报告，缺少
-  `circt-verilog`、`circt-opt`、`circt-translate`；没有执行转换。
-- 复现：`python3 research/cycle-systemc-poc/tools/run_feature_ladder.py --work /tmp/eda-cycle-systemc-circt`。
-- 结论限制：当前不能声称组合或顺序转换成功，也不能把缺工具写成转换失败。
+- 工具版本：官方 Linux x64 静态包 `firtool-1.154.0`，tag commit
+  `87898a876f730a2ebc607dc9b83da487cba49119`，归档 SHA256
+  `11eed2d6487bd547fc024905d9f92b205e5f69d4967668f5eb0ce1a91a91da8b`；
+  `circt-verilog` 报告 slang 11.0.0+0，三个必需二进制均为静态 x86-64 ELF。
+- 2026-08-09 实测：八档 frontend 全部通过；comb、hierarchy、parameterized 的
+  HW-to-SystemC conversion 通过，其余五档 conversion 失败；没有用例完成 emission。
+- 首个失败 operation：counter/FSM/memory/stream_accel 为 `seq.to_clock`，inout 为
+  `llhd.prb`；comb 和 parameterized emission 为 `systemc.convert`，并同时缺少
+  `comb.add` 等 emission pattern；hierarchy 的 SystemC MLIR 重解析时报告重复
+  `sym_visibility`。
+- 原始证据：`~/Work/eda-sandbox/cycle-systemc-poc/circt-1.154.0/` 下的
+  `feature-ladder.json`、Core/SystemC MLIR 和逐阶段日志。
+- 复现：先将 `~/Work/eda-sandbox/toolchains/circt/firtool-1.154.0/bin` 前置到
+  `PATH`，再运行以下命令：
+
+  ```bash
+  python3 research/cycle-systemc-poc/tools/run_feature_ladder.py \
+    --work ~/Work/eda-sandbox/cycle-systemc-poc/circt-1.154.0
+  ```
+
+- 结论限制：工具链已达到 `usable`，且 frontend 和部分 conversion 已由项目探针验证；
+  仍不能声称任一用例完成 SV→SystemC，也不能进入生成代码编译和运行验证。

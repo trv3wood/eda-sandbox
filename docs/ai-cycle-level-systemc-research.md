@@ -9,7 +9,8 @@
 3. functional core 是否能用薄 TLM wrapper 接入 SCC/VCML 或混合仿真环境。
 
 PoC 已实现后两个问题的代码结构；TLM 已在 SCC 镜像中完成编译和 contract test。
-第一个问题仍因 CIRCT 环境缺失而 blocked，尚无转换实验结论。
+官方 CIRCT firtool-1.154.0 静态工具链已经部署并运行 feature ladder；环境阻塞已解除，
+但当前 backend 尚未让任何用例完成 SystemC C++ emission。
 
 ## 能力矩阵
 
@@ -19,8 +20,10 @@ PoC 已实现后两个问题的代码结构；TLM 已在 SCC 镜像中完成编�
 | CL 参考适配器↔Functional 事务等价 | passed | 固定 seed 的 1000 个随机事务 |
 | 参考 RTL directed simulation | passed | Verilator 5.032，结果 55 |
 | Functional 性能收益 | observed | 20,000×32 samples，五次原始数据由 benchmark 输出 |
-| CIRCT frontend/conversion/emission | blocked | 三个 CIRCT 工具均不在当前 PATH |
-| CIRCT 生成 SystemC 编译运行 | blocked | CIRCT 工具未配置 |
+| CIRCT SV frontend | passed | firtool-1.154.0 + slang 11.0.0+0，8/8 用例通过 |
+| HW-to-SystemC conversion | partial | comb、hierarchy、parameterized 通过，3/8 |
+| SystemC C++ emission | failed | 0/3；缺少 `systemc.convert`/`comb.*` pattern，层次 IR 重解析失败 |
+| CIRCT 生成 SystemC 编译运行 | blocked | emission 无成功输出，尚无可编译生成物 |
 | 手写 TLM wrapper contract | passed | SCC 镜像内 configure/build，2/2 CTest 通过 |
 | 真实项目代表性 | blocked | 尚未提供真实模块、filelist、top 和规格 |
 
@@ -42,18 +45,22 @@ model 88,725 ns，即约 6.92×。该数字只衡量本 PoC 的两个 C++ 实现
 ## CIRCT 实验判定规则
 
 CIRCT 官方的 `convert-hw-to-systemc` 目标是把 HW design 转为 SystemC design，但当前
-backend 对不同 dialect 的覆盖必须以目标版本实测。当前源码仍明确拒绝 parameterized
-module 和 `inout`；顺序 RTL 经 frontend 产生 `seq.*`，因此 counter/FSM/memory 是必须
-单列的风险探针，而不是由组合 adder 的成功外推。
+backend 对不同 dialect 的覆盖必须以目标版本实测。1.154.0 中 parameterized 用例经
+Slang elaboration 后已不再携带模块参数，因此 conversion 通过；inout 首败于
+`llhd.prb`。顺序 RTL 经 frontend 产生 `seq.*`，counter/FSM/memory/stream_accel 均首败于
+`seq.to_clock`，不能由组合用例外推。即便 comb conversion 通过，exporter 仍因
+`systemc.convert` 和 `comb.*` 无 emission pattern 而失败。
 
 每个用例必须保留 Core MLIR、SystemC MLIR、生成 header 和日志。只有五阶段全部通过
 才能写“该用例 SV→SystemC 成功”；若失败，应报告首个非法 operation 和最小复现。
 
 ## 下一步执行顺序
 
-1. 团队提供启用 slang frontend 的 CIRCT 工具路径或已构建 artifact，并记录 commit。
-2. 当前先固定使用本地 SCC 镜像；需要宿主开发时再导出 SDK artifact。
-3. 运行 feature ladder，先获得组合/顺序/参数/inout 的实际矩阵。
+1. 固定使用官方 firtool-1.154.0 静态 artifact，并保留 tag commit、归档 SHA256 和
+   feature ladder 原始日志。
+2. 向 CIRCT upstream 提交 comb emission、hierarchy 重解析和 `seq.to_clock` 的最小复现，
+   确认所需 lowering pipeline 或 backend 缺口。
+3. 当前继续固定使用本地 SCC 镜像；需要宿主开发时再导出 SDK artifact。
 4. 提供一个有状态小型真实数据通路及 spec、top、filelist、include、define、reset 和
    完成语义；替换参考模块并建立 RTL trace。
 5. 对 CIRCT 生成的 CL SystemC 接入共享 stimulus，再开展真实的 CL→Functional
@@ -74,6 +81,7 @@ module 和 `inout`；顺序 RTL 经 frontend 产生 `seq.*`，因此 counter/FSM
 ## 参考资料
 
 - [CIRCT `convert-hw-to-systemc` pass](https://circt.llvm.org/docs/Passes/)
+- [CIRCT firtool-1.154.0 release](https://github.com/llvm/circt/releases/tag/firtool-1.154.0)
 - [CIRCT Verilog frontend](https://circt.llvm.org/docs/Tools/circt-verilog/)
 - [CIRCT SystemC dialect](https://circt.llvm.org/docs/Dialects/SystemC/)
 - [CIRCT HWToSystemC 当前源码](https://circt.llvm.org/doxygen/HWToSystemC_8cpp_source.html)

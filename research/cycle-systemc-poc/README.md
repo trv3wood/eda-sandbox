@@ -52,12 +52,26 @@ PATH 中必须同时存在启用 slang frontend 的 `circt-verilog`、`circt-opt
 `circt-translate`：
 
 ```bash
-python3 tools/run_feature_ladder.py --work ~/Work/cycle-systemc-poc/circt
+export CIRCT_HOME="$HOME/Work/eda-sandbox/toolchains/circt/firtool-1.154.0"
+export PATH="${CIRCT_HOME}/bin:${PATH}"
+python3 tools/run_feature_ladder.py \
+  --work "$HOME/Work/eda-sandbox/cycle-systemc-poc/circt-1.154.0"
 ```
+
+当前使用 CIRCT 官方 `firtool-1.154.0` Linux x64 静态包。下载文件
+`firrtl-bin-linux-x64.tar.gz` 的 SHA256 必须为
+`11eed2d6487bd547fc024905d9f92b205e5f69d4967668f5eb0ce1a91a91da8b`；归档解压后
+已经包含上述三个工具和 slang frontend，不需要在本机重编 CIRCT。工具目录可整体
+迁移到 `/opt/circt/firtool-1.154.0`，迁移后只需更新 `CIRCT_HOME`。
 
 报告固定写入 `feature-ladder.json`。若还要编译生成的 SystemC header，设置
 `SYSTEMC_CXXFLAGS` 为当前 SDK 所需的 include 参数。生成代码的真正链接/运行需要由
 后续 testbench 补齐；当前脚本把该阶段准确标记为 compile smoke test。
+
+2026-08-09 的 1.154.0 实测中，八档 frontend 全部通过，三档 HW-to-SystemC
+conversion 通过，但 emission 仍全部失败；详细 operation 和日志位置见
+`docs/EVIDENCE.md`。脚本返回非零在当前 backend 能力矩阵下是预期研究结果，不代表
+工具未安装。
 
 `rtl/stream_accel.sv` 是方法学参考模块，不是用户真实 RTL。真实模块接入时必须替换
 filelist/top，并从原始规格重新确认 reset、完成、背压与溢出语义。
