@@ -11,9 +11,6 @@ on:
       - scripts/regress.sh
       - scripts/regress-*.sh
       - .github/workflows/ubuntu-images.yml
-  push:
-    branches: [main]
-    tags: ["v*"]
   workflow_dispatch:
 
 permissions:

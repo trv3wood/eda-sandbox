@@ -7,9 +7,6 @@ on:
       - scripts/regress.sh
       - scripts/regress-*.sh
       - .github/workflows/rocky8-image.yml
-  push:
-    branches: [main]
-    tags: ["v*"]
   workflow_dispatch:
 
 permissions:

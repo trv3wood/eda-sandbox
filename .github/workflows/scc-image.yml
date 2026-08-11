@@ -1,9 +1,6 @@
 name: SCC container image
 
 on:
-  push:
-    branches: [dev]
-    tags: ["v*"]
   workflow_dispatch:
     inputs:
       cmake_debug_packages:
