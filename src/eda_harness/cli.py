@@ -7,8 +7,9 @@ import json
 import sys
 from pathlib import Path
 
-from .config import load_config, load_cycle_config
+from .config import load_config
 from .cycle import verify_cycle
+from .cycle_config import load_cycle_config
 from .discovery import discover, summarize_discovery
 from .state import STATE_DIR
 from .toolchain import CONFIG_ENV, load_toolchain_config

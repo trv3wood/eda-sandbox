@@ -1,268 +1,333 @@
-"""Cycle-accurate SystemC 的证据校验与 RTL 差分门禁。"""
+"""Cycle-accurate SystemC 强门禁的流程编排。"""
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
-import re
 import secrets
-import shutil
-import signal
-import subprocess
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import yaml
-
+from .cycle_config import CycleCase, CycleHarnessConfig
+from .cycle_evidence import EvidenceValidator, ModelAuditor, file_digest
+from .cycle_runtime import CommandContext, CommandRunner
+from .cycle_trace import TraceComparator
 from .state import STATE_DIR
 
 
-LOCATION_PATTERN = re.compile(r"^(.+):(\d+)$")
-FORBIDDEN_MODEL_PATTERNS = {
-    "Verilator runtime": re.compile(r"\bverilated(?:\.h|_vcd|_fst)?\b", re.IGNORECASE),
-    "reference trace": re.compile(r"reference[_-]?trace", re.IGNORECASE),
-    "external process": re.compile(r"\b(?:system|popen|exec[lvpe]*)\s*\("),
-}
+class ProtectedInputs:
+    """记录并检查验收期间不可变化的输入。"""
+
+    def __init__(self, paths: list[Path]) -> None:
+        self.hashes = {str(path): file_digest(path) for path in paths}
+
+    def changed_paths(self) -> list[str]:
+        return [
+            name
+            for name, digest in self.hashes.items()
+            if not Path(name).is_file() or file_digest(Path(name)) != digest
+        ]
+
+    def digest(self, path: Path) -> str:
+        return self.hashes[str(path)]
 
 
-def _digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+@dataclass(frozen=True)
+class CasePaths:
+    """单个差分用例的隔离产物。"""
+
+    directory: Path
+    stimulus: Path
+    reference_trace: Path
+    model_trace: Path
+
+    @classmethod
+    def create(cls, run_dir: Path, index: int, case: CycleCase) -> "CasePaths":
+        directory = run_dir / f"case-{index:03d}-{case.kind}-{case.seed}"
+        directory.mkdir()
+        return cls(
+            directory=directory,
+            stimulus=directory / "stimulus.jsonl",
+            reference_trace=directory / "reference.jsonl",
+            model_trace=directory / "model.jsonl",
+        )
 
 
-def _validate_location(workspace: Path, value: Any, field: str) -> None:
-    if not isinstance(value, str):
-        raise ValueError(f"{field} must be path:line")
-    match = LOCATION_PATTERN.fullmatch(value)
-    if not match:
-        raise ValueError(f"{field} must be path:line")
-    path = (workspace / match.group(1)).resolve()
-    try:
-        path.relative_to(workspace)
-    except ValueError as exc:
-        raise ValueError(f"{field} escapes workspace") from exc
-    if not path.is_file():
-        raise FileNotFoundError(f"{field} does not exist: {path}")
-    line = int(match.group(2))
-    line_count = len(path.read_text(encoding="utf-8", errors="replace").splitlines())
-    if line <= 0 or line > line_count:
-        raise ValueError(f"{field} line is outside file: {value}")
+class CycleVerifier:
+    """编排证据、构建、定向与随机差分门禁。"""
+
+    def __init__(
+        self, root: Path, config_path: Path, config: CycleHarnessConfig
+    ) -> None:
+        self.root = root.resolve()
+        self.config_path = config_path.resolve()
+        self.config = config
+        self.workspace = (self.root / config.workspace).resolve()
+        self.state_dir = self.root / STATE_DIR
+        self.run_dir = (
+            self.state_dir / "cycle-runs" / f"{time.time_ns()}-{os.getpid()}"
+        )
+        self.logs = self.run_dir / "logs"
+        self.logs.mkdir(parents=True)
+        self.runner = CommandRunner(self.workspace, self.logs)
+        self.auditor = ModelAuditor(self.workspace, config.model_sources)
+        self.comparator = TraceComparator(
+            config.observable_widths, config.sample_phase
+        )
+        self.checks: list[dict[str, Any]] = []
+        self.case_reports: list[dict[str, Any]] = []
+        self.status = "passed"
+        self.protected = ProtectedInputs(self._protected_paths())
+        self.fresh_seeds = self._fresh_seeds()
+
+    def verify(self) -> dict[str, Any]:
+        self._validate_evidence_and_sources()
+        if self.status == "passed":
+            self._run_build_gates()
+        if self.status == "passed":
+            self._run_cases()
+        self._check_protected_inputs()
+        report = self._build_report()
+        self._write_report(report)
+        return report
+
+    def _protected_paths(self) -> list[Path]:
+        return [
+            self.config_path,
+            self.workspace / self.config.evidence,
+            self.workspace / self.config.source_manifest,
+            *[
+                self.workspace / relative
+                for relative in self.config.model_sources
+            ],
+        ]
+
+    def _validate_evidence_and_sources(self) -> None:
+        try:
+            EvidenceValidator(self.workspace, self.config.top).validate(
+                self.workspace / self.config.evidence
+            )
+            self.auditor.audit_sources()
+            self.checks.append({"id": "evidence-and-audit", "status": "passed"})
+        except (FileNotFoundError, ValueError) as exc:
+            self._fail("evidence-and-audit", exc)
+
+    def _run_build_gates(self) -> None:
+        context = CommandContext(self.run_dir)
+        for role in ("reference_build", "model_build", "model_test"):
+            result = self.runner.run(role, self.config.command(role), context)
+            self.checks.append(result)
+            if result["status"] != "passed":
+                self.status = result["status"]
+                return
+            if role == "model_build" and not self._audit_binary():
+                return
+
+    def _audit_binary(self) -> bool:
+        try:
+            audit = self.auditor.audit_binary(
+                self.config.model_binary_path(self.run_dir)
+            )
+            self.checks.append({
+                "id": "model-binary-audit", "status": "passed", **audit,
+            })
+            return True
+        except (FileNotFoundError, ValueError) as exc:
+            self._fail("model-binary-audit", exc)
+            return False
+
+    def _run_cases(self) -> None:
+        for index, case in enumerate(self._cases()):
+            paths = CasePaths.create(self.run_dir, index, case)
+            self.case_reports.append(self._run_case(index, case, paths))
+            if self.status != "passed":
+                return
+
+    def _run_case(
+        self, index: int, case: CycleCase, paths: CasePaths
+    ) -> dict[str, Any]:
+        report: dict[str, Any] = {
+            "kind": case.kind, "seed": case.seed, "cycles": case.cycles,
+        }
+        stimulus_digest = self._generate_stimulus(index, case, paths, report)
+        if stimulus_digest is None:
+            return report
+        if not self._run_models(index, case, paths, stimulus_digest, report):
+            return report
+        return self._compare_case(case, paths, stimulus_digest, report)
+
+    def _generate_stimulus(
+        self,
+        index: int,
+        case: CycleCase,
+        paths: CasePaths,
+        report: dict[str, Any],
+    ) -> str | None:
+        context = CommandContext(
+            self.run_dir, case.seed, case.cycles, paths.stimulus
+        )
+        result = self.runner.run(
+            f"{index:03d}-stimulus", self.config.command("stimulus"), context
+        )
+        self.checks.append(result)
+        if result["status"] != "passed":
+            self.status = result["status"]
+            report.update({"status": self.status, "reason": result.get("reason")})
+            return None
+        if not paths.stimulus.is_file():
+            self.status = "failed"
+            report.update({
+                "status": "failed", "reason": "stimulus was not produced",
+            })
+            return None
+        return file_digest(paths.stimulus)
+
+    def _run_models(
+        self,
+        index: int,
+        case: CycleCase,
+        paths: CasePaths,
+        stimulus_digest: str,
+        report: dict[str, Any],
+    ) -> bool:
+        for role, trace in (
+            ("reference_run", paths.reference_trace),
+            ("model_run", paths.model_trace),
+        ):
+            context = CommandContext(
+                self.run_dir, case.seed, case.cycles, paths.stimulus, trace
+            )
+            result = self.runner.run(
+                f"{index:03d}-{role}", self.config.command(role), context
+            )
+            self.checks.append(result)
+            if result["status"] != "passed":
+                self.status = result["status"]
+                report.update({"status": self.status, "reason": result.get("reason")})
+                return False
+            if file_digest(paths.stimulus) != stimulus_digest:
+                self.status = "failed"
+                report.update({
+                    "status": "failed", "reason": f"{role} modified stimulus",
+                })
+                return False
+        return True
+
+    def _compare_case(
+        self,
+        case: CycleCase,
+        paths: CasePaths,
+        stimulus_digest: str,
+        report: dict[str, Any],
+    ) -> dict[str, Any]:
+        try:
+            comparison = self.comparator.compare(
+                paths.reference_trace, paths.model_trace, case.cycles
+            )
+            report.update({
+                "status": "passed",
+                **comparison,
+                "stimulus_sha256": stimulus_digest,
+            })
+        except (FileNotFoundError, ValueError) as exc:
+            self.status = "failed"
+            report.update({"status": "failed", "reason": str(exc)})
+        return report
+
+    def _cases(self) -> list[CycleCase]:
+        return [
+            self.config.directed_case,
+            *self.config.public_cases(),
+            *[
+                CycleCase("fresh-random", seed, self.config.cycles_per_seed)
+                for seed in self.fresh_seeds
+            ],
+        ]
+
+    def _fresh_seeds(self) -> list[int]:
+        used = {*self.config.public_seeds, self.config.directed_case.seed}
+        result: list[int] = []
+        while len(result) < self.config.fresh_seed_count:
+            seed = secrets.randbits(63)
+            if seed not in used:
+                used.add(seed)
+                result.append(seed)
+        return result
+
+    def _check_protected_inputs(self) -> None:
+        changed = self.protected.changed_paths()
+        if changed:
+            self.status = "failed"
+            self.checks.append({
+                "id": "protected-inputs",
+                "status": "failed",
+                "reason": f"verification modified protected inputs: {changed}",
+            })
+        else:
+            self.checks.append({"id": "protected-inputs", "status": "passed"})
+
+    def _fail(self, identifier: str, error: Exception) -> None:
+        self.status = "failed"
+        self.checks.append({
+            "id": identifier, "status": "failed", "reason": str(error),
+        })
+
+    def _build_report(self) -> dict[str, Any]:
+        evidence = self.workspace / self.config.evidence
+        manifest = self.workspace / self.config.source_manifest
+        return {
+            "schema_version": 1,
+            "status": self.status,
+            "result": self._result_name(),
+            "config": {
+                "path": str(self.config_path),
+                "sha256": self.protected.digest(self.config_path),
+            },
+            "evidence": {
+                "path": self.config.evidence,
+                "sha256": self.protected.digest(evidence),
+            },
+            "source_manifest": {
+                "path": self.config.source_manifest,
+                "sha256": self.protected.digest(manifest),
+            },
+            "run_dir": str(self.run_dir),
+            "public_seeds": list(self.config.public_seeds),
+            "fresh_seeds": self.fresh_seeds,
+            "checks": self.checks,
+            "cases": self.case_reports,
+        }
+
+    def _result_name(self) -> str:
+        if self.status == "passed":
+            return "cycle-equivalent"
+        if self.status == "blocked":
+            return "blocked"
+        return "not-cycle-equivalent"
+
+    def _write_report(self, report: dict[str, Any]) -> None:
+        self.state_dir.mkdir(exist_ok=True)
+        (self.state_dir / "cycle-report.json").write_text(
+            json.dumps(report, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
 
 
 def validate_evidence(workspace: Path, path: Path, top: str) -> dict[str, Any]:
-    """校验证据条目和所有文件引用。"""
-    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
-    if not isinstance(raw, dict) or raw.get("schema_version") != 1:
-        raise ValueError("cycle evidence schema_version must be 1")
-    if raw.get("top") != top:
-        raise ValueError("cycle evidence top does not match cycle harness")
-    semantics = raw.get("semantics")
-    if not isinstance(semantics, list) or not semantics:
-        raise ValueError("cycle evidence semantics must be a non-empty list")
-    identifiers: set[str] = set()
-    for index, item in enumerate(semantics, 1):
-        prefix = f"semantics[{index}]"
-        if not isinstance(item, dict):
-            raise ValueError(f"{prefix} must be a mapping")
-        identifier = item.get("id")
-        claim = item.get("claim")
-        if not isinstance(identifier, str) or not identifier or identifier in identifiers:
-            raise ValueError(f"{prefix}.id must be unique and non-empty")
-        if not isinstance(claim, str) or not claim:
-            raise ValueError(f"{prefix}.claim must be non-empty")
-        identifiers.add(identifier)
-        for field in ("rtl_locations", "systemc_locations"):
-            locations = item.get(field)
-            if not isinstance(locations, list) or not locations:
-                raise ValueError(f"{prefix}.{field} must be a non-empty list")
-            for location_index, location in enumerate(locations, 1):
-                _validate_location(
-                    workspace, location, f"{prefix}.{field}[{location_index}]"
-                )
-        evidence = item.get("tool_evidence")
-        if not isinstance(evidence, list) or not evidence:
-            raise ValueError(f"{prefix}.tool_evidence must be a non-empty list")
-        for evidence_index, entry in enumerate(evidence, 1):
-            evidence_prefix = f"{prefix}.tool_evidence[{evidence_index}]"
-            if not isinstance(entry, dict):
-                raise ValueError(f"{evidence_prefix} must be a mapping")
-            command = entry.get("command")
-            observation = entry.get("observation")
-            artifact = entry.get("artifact")
-            if not isinstance(command, list) or not command or not all(
-                isinstance(value, str) and value for value in command
-            ):
-                raise ValueError(f"{evidence_prefix}.command must be an argv list")
-            if not isinstance(observation, str) or not observation:
-                raise ValueError(f"{evidence_prefix}.observation must be non-empty")
-            if not isinstance(artifact, str) or not artifact:
-                raise ValueError(f"{evidence_prefix}.artifact must be a relative path")
-            artifact_path = (workspace / artifact).resolve()
-            try:
-                artifact_path.relative_to(workspace)
-            except ValueError as exc:
-                raise ValueError(f"{evidence_prefix}.artifact escapes workspace") from exc
-            if not artifact_path.is_file():
-                raise FileNotFoundError(f"evidence artifact does not exist: {artifact_path}")
-    return raw
+    """兼容入口：校验证据文件。"""
+    return EvidenceValidator(workspace, top).validate(path)
 
 
 def audit_model(workspace: Path, model_sources: list[str]) -> None:
-    """拒绝最终模型中常见的 simulator/trace 逃逸路径。"""
-    for relative in model_sources:
-        path = workspace / relative
-        text = path.read_text(encoding="utf-8", errors="replace")
-        for label, pattern in FORBIDDEN_MODEL_PATTERNS.items():
-            if pattern.search(text):
-                raise ValueError(f"model audit found forbidden {label} in {relative}")
+    """兼容入口：审计模型源码。"""
+    ModelAuditor(workspace, tuple(model_sources)).audit_sources()
 
 
 def audit_model_binary(path: Path) -> dict[str, Any]:
-    """检查最终可执行文件及其动态依赖。"""
-    if not path.is_file() or not os.access(path, os.X_OK):
-        raise FileNotFoundError(f"model binary was not produced: {path}")
-    reader = shutil.which("readelf") or shutil.which("objdump")
-    if not reader:
-        raise ValueError("readelf or objdump is required for model dependency audit")
-    arguments = [reader, "-d", str(path)] if Path(reader).name == "readelf" else [
-        reader, "-p", str(path),
-    ]
-    try:
-        result = subprocess.run(
-            arguments, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            check=False, timeout=30,
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise ValueError(f"cannot inspect model binary dependencies: {exc}") from exc
-    dependency_text = result.stdout or ""
-    if result.returncode != 0:
-        raise ValueError(f"cannot inspect model binary dependencies: {dependency_text.strip()}")
-    forbidden = re.search(
-        r"\b(?:verilated|verilator|vpi|dpi|vcs|xrun|questa|modelsim)\b",
-        dependency_text,
-        re.IGNORECASE,
-    )
-    if forbidden:
-        raise ValueError(
-            f"model binary depends on forbidden simulator component: {forbidden.group(0)}"
-        )
-    return {"path": str(path), "sha256": _digest(path), "dependencies": dependency_text.splitlines()}
-
-
-def _expand(command: list[str], values: dict[str, str]) -> list[str]:
-    result: list[str] = []
-    for argument in command:
-        expanded = argument
-        for placeholder, value in values.items():
-            expanded = expanded.replace(placeholder, value)
-        result.append(expanded)
-    return result
-
-
-def _run_command(
-    role: str,
-    spec: dict[str, Any],
-    workspace: Path,
-    log_path: Path,
-    values: dict[str, str],
-) -> dict[str, Any]:
-    command = _expand(spec["command"], values)
-    cwd = workspace / spec["cwd"]
-    executable = command[0]
-    if Path(executable).is_absolute():
-        resolved = executable if os.access(executable, os.X_OK) else None
-    elif "/" in executable:
-        candidate = (cwd / executable).resolve()
-        resolved = (
-            str(candidate)
-            if candidate.is_file() and os.access(candidate, os.X_OK)
-            else None
-        )
-    else:
-        resolved = shutil.which(executable)
-    base = {"id": role, "command": command, "cwd": spec["cwd"], "log": str(log_path)}
-    if not resolved:
-        log_path.write_text(f"tool is unavailable: {executable}\n", encoding="utf-8")
-        return {**base, "status": "blocked", "reason": f"tool is unavailable: {executable}"}
-    started = time.monotonic()
-    try:
-        process = subprocess.Popen(
-            command,
-            cwd=cwd,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-        )
-    except OSError as exc:
-        log_path.write_text(f"cannot start command: {exc}\n", encoding="utf-8")
-        return {**base, "status": "blocked", "reason": f"cannot start command: {exc}"}
-    timed_out = False
-    try:
-        output, _ = process.communicate(timeout=spec["timeout_seconds"])
-    except subprocess.TimeoutExpired:
-        timed_out = True
-        os.killpg(process.pid, signal.SIGTERM)
-        try:
-            output, _ = process.communicate(timeout=5)
-        except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
-            output, _ = process.communicate()
-    log_path.write_text(output or "", encoding="utf-8", errors="replace")
-    result = {
-        **base,
-        "duration_seconds": round(time.monotonic() - started, 6),
-        "returncode": process.returncode,
-    }
-    if timed_out:
-        return {**result, "status": "failed", "reason": "command timed out"}
-    return {**result, "status": "passed" if process.returncode == 0 else "failed"}
-
-
-def _load_trace(
-    path: Path,
-    observables: dict[str, int],
-    sample_phase: str,
-) -> list[dict[str, Any]]:
-    if not path.is_file():
-        raise FileNotFoundError(f"trace was not produced: {path}")
-    records: list[dict[str, Any]] = []
-    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-        if not line.strip():
-            continue
-        try:
-            record = json.loads(line)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"invalid JSONL at {path}:{line_number}: {exc}") from exc
-        if (
-            not isinstance(record, dict)
-            or isinstance(record.get("sample"), bool)
-            or record.get("sample") != len(records)
-        ):
-            raise ValueError(f"trace sample must be contiguous at {path}:{line_number}")
-        if record.get("phase") != sample_phase:
-            raise ValueError(f"trace phase mismatch at {path}:{line_number}")
-        signals = record.get("signals")
-        if not isinstance(signals, dict) or set(signals) != set(observables):
-            raise ValueError(f"trace signals mismatch at {path}:{line_number}")
-        normalized: dict[str, str] = {}
-        for name, width in observables.items():
-            value = signals[name]
-            if not isinstance(value, str) or not re.fullmatch(r"0x[0-9a-f]+", value):
-                raise ValueError(f"{name} must be canonical lowercase hex at {path}:{line_number}")
-            number = int(value, 16)
-            if number >= 1 << width:
-                raise ValueError(f"{name} exceeds declared width at {path}:{line_number}")
-            digits = max(1, (width + 3) // 4)
-            canonical = f"0x{number:0{digits}x}"
-            if value != canonical:
-                raise ValueError(f"{name} is not width-canonical at {path}:{line_number}")
-            normalized[name] = canonical
-        records.append({"sample": len(records), "phase": sample_phase, "signals": normalized})
-    if not records:
-        raise ValueError(f"trace is empty: {path}")
-    return records
+    """兼容入口：审计模型二进制。"""
+    return ModelAuditor(path.parent, ()).audit_binary(path)
 
 
 def compare_traces(
@@ -272,192 +337,14 @@ def compare_traces(
     sample_phase: str,
     expected_samples: int | None = None,
 ) -> dict[str, Any]:
-    """逐样点比较两份标准 JSONL trace。"""
-    expected = _load_trace(reference, observables, sample_phase)
-    actual = _load_trace(model, observables, sample_phase)
-    if len(expected) != len(actual):
-        raise ValueError(
-            f"trace length mismatch: reference={len(expected)}, model={len(actual)}"
-        )
-    if expected_samples is not None and len(expected) != expected_samples:
-        raise ValueError(
-            f"trace sample count mismatch: expected={expected_samples}, actual={len(expected)}"
-        )
-    for index, (left, right) in enumerate(zip(expected, actual)):
-        if left != right:
-            mismatches = [
-                name for name in observables
-                if left["signals"][name] != right["signals"][name]
-            ]
-            raise ValueError(
-                f"trace mismatch at sample {index}: signals={mismatches}, "
-                f"reference={left['signals']}, model={right['signals']}"
-            )
-    return {"samples": len(expected), "reference_sha256": _digest(reference), "model_sha256": _digest(model)}
-
-
-def verify_cycle(root: Path, *, config_path: Path, config: dict[str, Any]) -> dict[str, Any]:
-    """执行证据、构建、定向和双批随机差分门禁。"""
-    root = root.resolve()
-    workspace = (root / config["workspace"]).resolve()
-    state = root / STATE_DIR
-    run_root = state / "cycle-runs" / f"{time.time_ns()}-{os.getpid()}"
-    logs = run_root / "logs"
-    logs.mkdir(parents=True)
-    checks: list[dict[str, Any]] = []
-    status = "passed"
-    protected_paths = [
-        config_path,
-        workspace / config["evidence"],
-        workspace / config["source_manifest"],
-        *[workspace / relative for relative in config["model_sources"]],
-    ]
-    protected_hashes = {str(path): _digest(path) for path in protected_paths}
-
-    try:
-        evidence_path = workspace / config["evidence"]
-        validate_evidence(workspace, evidence_path, config["top"])
-        audit_model(workspace, config["model_sources"])
-        checks.append({"id": "evidence-and-audit", "status": "passed"})
-    except (FileNotFoundError, ValueError) as exc:
-        checks.append({"id": "evidence-and-audit", "status": "failed", "reason": str(exc)})
-        status = "failed"
-
-    common = {
-        "{run_dir}": str(run_root),
-        "{seed}": "0",
-        "{cycles}": "0",
-        "{stimulus}": "",
-        "{trace}": "",
-    }
-    if status == "passed":
-        for role in ("reference_build", "model_build", "model_test"):
-            result = _run_command(
-                role, config["commands"][role], workspace,
-                logs / f"{role}.log", common,
-            )
-            checks.append(result)
-            if result["status"] != "passed":
-                status = result["status"]
-                break
-            if role == "model_build":
-                try:
-                    binary_path = Path(
-                        config["model_binary"].replace("{run_dir}", str(run_root))
-                    )
-                    binary_audit = audit_model_binary(binary_path)
-                    checks.append({
-                        "id": "model-binary-audit", "status": "passed", **binary_audit,
-                    })
-                except (FileNotFoundError, ValueError) as exc:
-                    checks.append({
-                        "id": "model-binary-audit", "status": "failed",
-                        "reason": str(exc),
-                    })
-                    status = "failed"
-                    break
-
-    public_seeds = config["random"]["public_seeds"]
-    used = {*public_seeds, config["directed"]["seed"]}
-    fresh_seeds: list[int] = []
-    while len(fresh_seeds) < config["random"]["fresh_seed_count"]:
-        seed = secrets.randbits(63)
-        if seed not in used:
-            used.add(seed)
-            fresh_seeds.append(seed)
-    cases = [
-        ("directed", config["directed"]["seed"], config["directed"]["cycles"]),
-        *[("public-random", seed, config["random"]["cycles_per_seed"]) for seed in public_seeds],
-        *[("fresh-random", seed, config["random"]["cycles_per_seed"]) for seed in fresh_seeds],
-    ]
-    case_reports: list[dict[str, Any]] = []
-    observables = {item["name"]: item["width"] for item in config["observables"]}
-    if status == "passed":
-        for case_index, (kind, seed, cycles) in enumerate(cases):
-            case_dir = run_root / f"case-{case_index:03d}-{kind}-{seed}"
-            case_dir.mkdir()
-            stimulus = case_dir / "stimulus.jsonl"
-            reference_trace = case_dir / "reference.jsonl"
-            model_trace = case_dir / "model.jsonl"
-            values = {
-                "{run_dir}": str(run_root), "{seed}": str(seed), "{cycles}": str(cycles),
-                "{stimulus}": str(stimulus), "{trace}": "",
-            }
-            case_result: dict[str, Any] = {"kind": kind, "seed": seed, "cycles": cycles}
-            for role, trace in (("stimulus", None), ("reference_run", reference_trace), ("model_run", model_trace)):
-                values["{trace}"] = str(trace) if trace else ""
-                result = _run_command(
-                    f"{case_index:03d}-{role}", config["commands"][role], workspace,
-                    logs / f"{case_index:03d}-{role}.log", values,
-                )
-                checks.append(result)
-                if result["status"] != "passed":
-                    status = result["status"]
-                    case_result.update({"status": status, "reason": result.get("reason")})
-                    break
-                if role == "stimulus":
-                    if not stimulus.is_file():
-                        status = "failed"
-                        case_result.update({"status": status, "reason": "stimulus was not produced"})
-                        break
-                    stimulus_digest = _digest(stimulus)
-                elif _digest(stimulus) != stimulus_digest:
-                    status = "failed"
-                    case_result.update({"status": status, "reason": f"{role} modified stimulus"})
-                    break
-            if status == "passed":
-                try:
-                    comparison = compare_traces(
-                        reference_trace, model_trace, observables,
-                        config["sample_phase"], expected_samples=cycles,
-                    )
-                    case_result.update({"status": "passed", **comparison, "stimulus_sha256": stimulus_digest})
-                except (FileNotFoundError, ValueError) as exc:
-                    status = "failed"
-                    case_result.update({"status": "failed", "reason": str(exc)})
-            case_reports.append(case_result)
-            if status != "passed":
-                break
-
-    changed = [
-        path for path, digest in protected_hashes.items()
-        if not Path(path).is_file() or _digest(Path(path)) != digest
-    ]
-    if changed:
-        checks.append({
-            "id": "protected-inputs", "status": "failed",
-            "reason": f"verification modified protected inputs: {changed}",
-        })
-        status = "failed"
-    else:
-        checks.append({"id": "protected-inputs", "status": "passed"})
-
-    report = {
-        "schema_version": 1,
-        "status": status,
-        "result": (
-            "cycle-equivalent" if status == "passed"
-            else "blocked" if status == "blocked"
-            else "not-cycle-equivalent"
-        ),
-        "config": {"path": str(config_path), "sha256": protected_hashes[str(config_path)]},
-        "evidence": {
-            "path": config["evidence"],
-            "sha256": protected_hashes[str(workspace / config["evidence"])],
-        },
-        "source_manifest": {
-            "path": config["source_manifest"],
-            "sha256": protected_hashes[str(workspace / config["source_manifest"])],
-        },
-        "run_dir": str(run_root),
-        "public_seeds": public_seeds,
-        "fresh_seeds": fresh_seeds,
-        "checks": checks,
-        "cases": case_reports,
-    }
-    state.mkdir(exist_ok=True)
-    (state / "cycle-report.json").write_text(
-        json.dumps(report, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
-        encoding="utf-8",
+    """兼容入口：逐样点比较两份标准 JSONL trace。"""
+    return TraceComparator(observables, sample_phase).compare(
+        reference, model, expected_samples
     )
-    return report
+
+
+def verify_cycle(
+    root: Path, *, config_path: Path, config: CycleHarnessConfig
+) -> dict[str, Any]:
+    """兼容入口：执行 Cycle-SystemC 强门禁。"""
+    return CycleVerifier(root, config_path, config).verify()

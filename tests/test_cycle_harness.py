@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import yaml
 
-from eda_harness.config import load_cycle_config
+from eda_harness.cycle_config import load_cycle_config
 from eda_harness.cycle import compare_traces, validate_evidence, verify_cycle
 from eda_harness.cli import build_parser
 
