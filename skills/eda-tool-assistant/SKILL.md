@@ -5,7 +5,7 @@ description: Discover, confirm, and configure EDA tool environments for RTL, Sys
 
 # EDA 工具环境助手
 
-发现机器能安全确认的事实，向用户询问机器无法知道的环境信息，并生成最小、外置、可验证的工具配置。不要把工具发现重新扩展成建模工作流。
+发现机器能安全确认的事实，向用户询问机器无法知道的环境信息，并生成最小、外置、可验证的工具配置。
 
 ## 工作流
 

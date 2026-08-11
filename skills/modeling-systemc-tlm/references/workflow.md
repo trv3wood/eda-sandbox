@@ -5,7 +5,7 @@
 ```text
 task.md
 harness.yaml
-.eda-harness/{discovery,baseline,report}.json
+.eda-harness/{discovery,report}.json
 .eda-harness/logs/
 ```
 
@@ -14,7 +14,6 @@ harness.yaml
 ```bash
 eda-harness discover PROJECT
 # 写 task.md 和 harness.yaml
-eda-harness snapshot PROJECT --task task.md --config harness.yaml
 # 语义抽取与证据（见下）：EDA 工具交叉验证理解，写 docs/EVIDENCE.md + docs/MODEL_ARCH.md
 # Agent 直接实现模型并按需运行局部检查
 eda-harness verify PROJECT --task task.md --config harness.yaml
@@ -51,7 +50,6 @@ harness.yaml 可选加一条 `docs` check (category: `custom`) 让“两份文�
 ```yaml
 schema_version: 1
 workspace: .
-allowed_changes: [model/**, tests/**]
 checks:
   - id: configure
     category: build
@@ -66,6 +64,4 @@ checks:
     depends_on: [build]
 ```
 
-命令必须是 argv 数组，`cwd` 相对 workspace，默认超时 1800 秒且 `required: true`。缺少 required 工具时总体为 `blocked`；命令失败或修改越界时总体为 `failed`。
-
-Snapshot 记录任务开始时的实际文件内容，所以已有脏改动不会误算成本次变化。它锁定 `allowed_changes`；需要扩大范围时，应停止并明确开始新的任务基线，不能静默放宽配置。
+命令必须是 argv 数组，`cwd` 相对 workspace，默认超时 1800 秒且 `required: true`。缺少 required 工具时总体为 `blocked`；命令失败时总体为 `failed`。

@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .snapshot import STATE_DIR, check_integrity
+from .state import STATE_DIR
 
 
 def _run_check(check: dict[str, Any], workspace: Path, logs: Path) -> dict[str, Any]:
@@ -97,19 +97,12 @@ def verify(
     task_path: Path,
     config: dict[str, Any],
 ) -> dict[str, Any]:
-    """运行 integrity gate 和用户声明的全部检查。"""
+    """按声明运行全部检查。"""
     root = root.resolve()
     workspace = (root / config["workspace"]).resolve()
     state = root / STATE_DIR
-    baseline_path = state / "baseline.json"
-    if not baseline_path.is_file():
-        raise FileNotFoundError("baseline snapshot is missing; run snapshot first")
-    baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
-    if baseline.get("workspace") != config["workspace"]:
-        raise ValueError("workspace differs from the baseline snapshot")
     logs = state / "logs"
     logs.mkdir(parents=True, exist_ok=True)
-    integrity = check_integrity(root, config_path, task_path)
     results: list[dict[str, Any]] = []
     by_id: dict[str, dict[str, Any]] = {}
     for check in config["checks"]:
@@ -132,9 +125,7 @@ def verify(
         results.append(result)
         by_id[check["id"]] = result
     required = [item for item in results if item["required"]]
-    if integrity["status"] == "failed" or any(
-        item["status"] == "failed" for item in required
-    ):
+    if any(item["status"] == "failed" for item in required):
         overall = "failed"
     elif any(item["status"] == "blocked" for item in required):
         overall = "blocked"
@@ -149,7 +140,6 @@ def verify(
         "status": overall,
         "task": {"path": str(task_path), "sha256": digest(task_path)},
         "config": {"path": str(config_path), "sha256": digest(config_path)},
-        "integrity": integrity,
         "checks": results,
     }
     report_path = state / "report.json"

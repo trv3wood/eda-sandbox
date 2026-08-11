@@ -1,17 +1,13 @@
 # 开源 EDA 建模沙盒
 
 本仓库采用“薄 skill + 验证型 harness”的工作方式：Agent 直接理解任务、使用工程
-原生 EDA 工具并修改代码；程序只负责发现工具、记录任务基线、检查改动范围和执行
-可重复验证。
+原生 EDA 工具并修改代码；程序只负责发现工具和执行可重复验证。
 
 仓库提供一个环境辅助 skill 和两个领域建模 skill：
 
 - `eda-tool-assistant`：发现、确认并配置本地、研发网、module、SDK 和容器工具环境。
 - `modeling-systemc-tlm`：直接实现 loosely timed SystemC/TLM 模型与测试。
 - `modeling-systemverilog`：直接实现或修改 SystemVerilog RTL/DV。
-
-二者共享 `eda-harness`，不再使用 canonical graph、八类合同、handoff、审批状态机、
-固定 scaffold generator 或结构化 edits.json。
 
 ## 快速开始
 
@@ -30,7 +26,6 @@ uv run eda-harness discover PROJECT
 # PROJECT/harness.yaml
 schema_version: 1
 workspace: .
-allowed_changes: [src/**, tests/**]
 checks:
   - id: syntax
     category: syntax
@@ -41,17 +36,12 @@ checks:
     depends_on: [syntax]
 ```
 
-首个代码改动前创建 snapshot，完成后验证：
+完成后验证：
 
 ```bash
-uv run eda-harness snapshot PROJECT
-# Agent 直接修改 PROJECT
 uv run eda-harness verify PROJECT
 uv run eda-harness status PROJECT
 ```
-
-Snapshot 会把用户已有的 dirty state 作为基线，只审计此后发生的变化。新增、修改、
-删除或重命名若不匹配 snapshot 时锁定的 `allowed_changes`，integrity gate 会失败。
 
 ## EDA 环境路由
 
@@ -90,17 +80,3 @@ PYTHONPATH=src python3 -m eda_harness.cli --help
 
 容器和 SDK 回归仍可使用 `scripts/regress.sh PROFILE`；详见
 [`docs/harness.md`](docs/harness.md)。
-
-## Ubuntu SCC SDK 导出与宿主机使用
-
-`eda-scc` 镜像还包含可导出的 `/opt/eda-scc-sdk`。CI 会上传
-`eda-scc-ubuntu-sdk.tar.gz` 及其 SHA-256 文件；解压到宿主机 `/opt` 后启用：
-
-```bash
-sudo tar -C /opt -xzf eda-scc-ubuntu-sdk.tar.gz
-source /opt/eda-scc-sdk/activate.sh
-cmake -S PROJECT -B PROJECT/build
-```
-
-SDK 内只包含 `scc/`、`deps/` 和 `activate.sh`，不包含 Conan 缓存或构建目录。
-它面向兼容的 Ubuntu 主机；容器仍是可重复验证的参考环境。

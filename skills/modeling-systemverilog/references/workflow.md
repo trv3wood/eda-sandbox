@@ -5,7 +5,6 @@
 ```bash
 eda-harness discover PROJECT
 # 写 task.md 与 harness.yaml
-eda-harness snapshot PROJECT
 # Agent 直接读写工程
 eda-harness verify PROJECT
 ```
@@ -15,9 +14,6 @@ eda-harness verify PROJECT
 ```yaml
 schema_version: 1
 workspace: .
-allowed_changes:
-  - rtl/gpio.sv
-  - dv/gpio_filter_test.sv
 checks:
   - id: lint
     category: lint
@@ -32,5 +28,3 @@ checks:
 ```
 
 本仓库维护的专用容器环境可以通过 `scripts/eda-run` 调用；研发网、商业工具和工程原生 wrapper 直接使用项目提供的命令。Harness 不解析 RTL、不重建 filelist，也不推断验证命令。
-
-Snapshot 记录修改前的已有 dirty state；最终 integrity gate 只检查 snapshot 后的增量。新增、删除、重命名和修改都必须匹配 snapshot 时锁定的 `allowed_changes`。

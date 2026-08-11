@@ -3,7 +3,7 @@
 ## Project Structure & Module Organization
 
 The Python harness lives in `src/eda_harness/`. `cli.py` defines the command
-line; discovery, configuration, snapshotting, and verification are separated
+line; discovery, configuration, and verification are separated
 into focused modules. Environment assistance lives in
 `skills/eda-tool-assistant/`; the thin direct-modeling skills live under
 `skills/modeling-systemc-tlm/` and `skills/modeling-systemverilog/`. Tests are
@@ -46,8 +46,8 @@ is currently enforced, so keep changes PEP 8-compatible and run `compileall`.
 
 Tests use the standard `unittest` framework and follow `test_*.py` naming.
 Add focused fixtures under `tests/fixtures/<design>/`. Cover discovery,
-configuration validation, existing dirty baselines, allowed-change integrity,
-timeouts, dependencies, and passed/failed/blocked aggregation. Tests should not
+configuration validation, timeouts, dependencies, and passed/failed/blocked
+aggregation. Tests should not
 require network access or commercial EDA tools.
 
 ## Commit & Pull Request Guidelines

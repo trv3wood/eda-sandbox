@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .config import load_config
 from .discovery import discover, summarize_discovery
-from .snapshot import STATE_DIR, create_snapshot
+from .state import STATE_DIR
 from .toolchain import CONFIG_ENV, load_toolchain_config
 from .verification import verify
 
@@ -33,10 +33,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="在标准输出打印完整报告；默认打印 Agent 摘要",
     )
-    for name, help_text in (
-        ("snapshot", "记录任务开始前的文件基线"),
-        ("verify", "核对改动范围并执行验证命令"),
-    ):
+    for name, help_text in (("verify", "执行验证命令"),):
         command = commands.add_parser(name, help=help_text)
         command.add_argument("root", nargs="?", default=".")
         command.add_argument("--task", default="task.md")
@@ -49,7 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
 def _status(root: Path) -> dict[str, object]:
     state = root / STATE_DIR
     result: dict[str, object] = {}
-    for name in ("discovery_summary", "discovery", "baseline", "report"):
+    for name in ("discovery_summary", "discovery", "report"):
         filename = name.replace("_", "-") if name == "discovery_summary" else name
         path = state / f"{filename}.json"
         result[name] = (
@@ -75,16 +72,7 @@ def main(argv: list[str] | None = None) -> int:
             config_path = _path(root, args.config)
             task_path = _path(root, args.task)
             config = load_config(root, config_path)
-            result = (
-                create_snapshot(
-                    root,
-                    config_path=config_path,
-                    task_path=task_path,
-                    config=config,
-                )
-                if args.command == "snapshot"
-                else verify(root, config_path=config_path, task_path=task_path, config=config)
-            )
+            result = verify(root, config_path=config_path, task_path=task_path, config=config)
         print(json.dumps(result, indent=2, sort_keys=True, ensure_ascii=False))
         if args.command == "verify" and result["status"] != "passed":
             return 1

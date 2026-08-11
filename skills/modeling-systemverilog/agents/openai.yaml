@@ -1,4 +1,4 @@
 interface:
   display_name: "SystemVerilog Modeling"
-  short_description: "直接实现并验证 SystemVerilog RTL 与 DV"
+  short_description: "实现并验证 SystemVerilog RTL 与 DV"
   default_prompt: "Use $modeling-systemverilog to implement the requested RTL change directly and verify it with the available EDA toolchain."

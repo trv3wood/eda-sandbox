@@ -13,7 +13,7 @@ description: Implement and verify loosely timed SystemC TLM-2.0 models directly 
 2. 将用户目标、范围、约束和验收条件忠实整理到 `task.md`；不确定的设计语义必须回到原始资料或询问用户，不得自行发明。
 3. 运行 `eda-harness discover PROJECT`，再按 `references/tooling.md` 的能力矩阵选择工程原生、商业或开源工具；在 `task.md` 记录选中的后端、命令、理由和不可接受的降级。报告只是建议，不能替代任务相关判断。
    缺少任务所需工具或激活信息时，使用 `eda-tool-assistant` 向用户确认并准备外置配置。
-4. 若任务需要改代码或运行多项验收，建立一次最小 `harness.yaml`：只声明允许修改范围和最终选定的项目验证命令；然后在首个代码改动前运行 `eda-harness snapshot PROJECT`。只做环境盘点时不需要它。
+4. 若任务需要改代码或运行多项验收，建立一次最小 `harness.yaml`，只声明最终选定的项目验证命令。只做环境盘点时不需要它。
 5. **语义抽取与证据**:对每个关键语义决策（寄存器副作用、影子配置、寻址、仲裁...），定位 RTL 源 (`file:line`) 与spec 章节，并用 EDA 工具交叉验证理解 (见 `references/tooling.md` 的工具映射)--仿真弹奏、波形或查询至少用一种，**不能只靠读代码**。完成架构与功能推理后，在项目 `docs/` 写两份审计文档：
    - `EVIDENCE.md` ：juece -> RTL 依据 -> EDA 工具证据 -> 模型复刻位置 -> 复现命令；
    - `MODEL_ARCH.md` (实现)：function 切分、接口、数据流、映射到 RTL 模块。
