@@ -1,12 +1,15 @@
 # 开源 EDA 建模沙盒
 
 本仓库采用“薄 skill + 验证型 harness”的工作方式：Agent 直接理解任务、使用工程
-原生 EDA 工具并修改代码；程序只负责发现工具和执行可重复验证。
+原生 EDA 工具并修改代码；程序负责发现工具、执行可重复验证，并为 Cycle-SystemC
+提供机器可判定的强差分门禁。
 
-仓库提供一个环境辅助 skill 和两个领域建模 skill：
+仓库提供一个环境辅助 skill 和三个领域建模 skill：
 
 - `eda-tool-assistant`：发现、确认并配置本地、研发网、module、SDK 和容器工具环境。
 - `modeling-systemc-tlm`：直接实现 loosely timed SystemC/TLM 模型与测试。
+- `cycle-systemc-modeling`：读取 RTL、用 EDA 工具验证周期语义并转写 Cycle-SystemC，
+  通过专用 RTL 差分门禁验收。
 - `modeling-systemverilog`：直接实现或修改 SystemVerilog RTL/DV。
 
 ## 快速开始
@@ -42,6 +45,15 @@ checks:
 uv run eda-harness verify PROJECT
 uv run eda-harness status PROJECT
 ```
+
+Cycle-SystemC 任务不使用 `task.md`，改用独立机器契约：
+
+```bash
+uv run eda-harness verify-cycle PROJECT --config cycle-harness.yaml
+```
+
+其配置、证据和 JSONL trace 接口见
+`skills/cycle-systemc-modeling/references/cycle-harness.md`。
 
 ## EDA 环境路由
 

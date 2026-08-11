@@ -7,7 +7,8 @@ import json
 import sys
 from pathlib import Path
 
-from .config import load_config
+from .config import load_config, load_cycle_config
+from .cycle import verify_cycle
 from .discovery import discover, summarize_discovery
 from .state import STATE_DIR
 from .toolchain import CONFIG_ENV, load_toolchain_config
@@ -38,6 +39,9 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("root", nargs="?", default=".")
         command.add_argument("--task", default="task.md")
         command.add_argument("--config", default="harness.yaml")
+    cycle = commands.add_parser("verify-cycle", help="执行 Cycle-SystemC 强差分门禁")
+    cycle.add_argument("root", nargs="?", default=".")
+    cycle.add_argument("--config", default="cycle-harness.yaml")
     status = commands.add_parser("status", help="读取最近的 harness 状态")
     status.add_argument("root", nargs="?", default=".")
     return parser
@@ -46,8 +50,10 @@ def build_parser() -> argparse.ArgumentParser:
 def _status(root: Path) -> dict[str, object]:
     state = root / STATE_DIR
     result: dict[str, object] = {}
-    for name in ("discovery_summary", "discovery", "report"):
-        filename = name.replace("_", "-") if name == "discovery_summary" else name
+    for name in ("discovery_summary", "discovery", "report", "cycle_report"):
+        filename = name.replace("_", "-") if name in {
+            "discovery_summary", "cycle_report"
+        } else name
         path = state / f"{filename}.json"
         result[name] = (
             json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
@@ -68,13 +74,17 @@ def main(argv: list[str] | None = None) -> int:
             result = full_report if args.full else summarize_discovery(full_report)
         elif args.command == "status":
             result = _status(root)
+        elif args.command == "verify-cycle":
+            config_path = _path(root, args.config)
+            config = load_cycle_config(root, config_path)
+            result = verify_cycle(root, config_path=config_path, config=config)
         else:
             config_path = _path(root, args.config)
             task_path = _path(root, args.task)
             config = load_config(root, config_path)
             result = verify(root, config_path=config_path, task_path=task_path, config=config)
         print(json.dumps(result, indent=2, sort_keys=True, ensure_ascii=False))
-        if args.command == "verify" and result["status"] != "passed":
+        if args.command in {"verify", "verify-cycle"} and result["status"] != "passed":
             return 1
         return 0
     except (FileExistsError, FileNotFoundError, RuntimeError, ValueError) as exc:

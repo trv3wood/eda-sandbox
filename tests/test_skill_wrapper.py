@@ -9,9 +9,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class SkillWrapperTest(unittest.TestCase):
-    def test_both_skills_expose_the_shared_harness(self) -> None:
+    def test_skills_expose_the_shared_harness(self) -> None:
         for skill in (
             "eda-tool-assistant",
+            "cycle-systemc-modeling",
             "modeling-systemc-tlm",
             "modeling-systemverilog",
         ):

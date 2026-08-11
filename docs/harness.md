@@ -33,9 +33,22 @@ Probe 失败的作用域是当前进程或沙盒，不能据此否定用户宿�
 - required 失败使总体失败；没有失败但存在 required blocked 时总体 blocked。
 - optional 结果不改变总体状态。
 
+### `verify-cycle ROOT --config cycle-harness.yaml`
+
+用于 RTL 到 Cycle-SystemC 的强差分验收，不读取 `task.md`。它校验结构化 EDA 证据和
+模型独立性，从新运行目录执行 reference/model build 与 SystemC unit/elaboration，随后
+用同一 stimulus 完成定向、至少 10×1,000-cycle 公开随机和至少 10×1,000-cycle 运行时
+新种子差分。
+
+Reference 和 model 必须输出标准 JSONL trace。Harness 自己校验连续 sample、采样
+phase、observable 全集、位宽、二态值及逐样点一致性，并核对 stimulus 未被两侧修改。
+结果写入 `.eda-harness/cycle-report.json`，运行产物位于
+`.eda-harness/cycle-runs/`。完整 schema 见
+`skills/cycle-systemc-modeling/references/cycle-harness.md`。
+
 ### `status ROOT`
 
-读取最近的 discovery 和 report，不执行命令。
+读取最近的 discovery、普通 report 和 cycle report，不执行命令。
 
 ## 配置接口
 

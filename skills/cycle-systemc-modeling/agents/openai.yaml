@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cycle SystemC Modeler"
+  short_description: "读取 RTL 并用 EDA 证据转写逐周期 SystemC"
+  default_prompt: "Use $cycle-systemc-modeling to understand the RTL with EDA tools, implement a cycle-accurate SystemC model, and prove it with differential verification."
