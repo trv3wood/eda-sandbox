@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import contextlib
+import io
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,7 +12,7 @@ import yaml
 
 from eda_harness.cycle_config import load_cycle_config
 from eda_harness.cycle import compare_traces, verify_cycle
-from eda_harness.cli import build_parser
+from eda_harness.cli import build_parser, main
 
 
 DRIVER = r'''#!/usr/bin/env python3
@@ -194,6 +196,22 @@ class CycleHarnessTest(unittest.TestCase):
         args = parser.parse_args(["verify-cycle", "."])
         self.assertEqual(args.config, "cycle-harness.yaml")
         self.assertFalse(hasattr(args, "task"))
+
+    def test_verify_cycle_cli_warns_that_yaml_workflow_is_deprecated(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            error = io.StringIO()
+            with (
+                patch("eda_harness.cli.load_cycle_config", return_value=object()),
+                patch(
+                    "eda_harness.cli.verify_cycle",
+                    return_value={"status": "passed", "result": "regression-passed"},
+                ),
+                contextlib.redirect_stderr(error),
+            ):
+                result = main(["verify-cycle", temporary])
+        self.assertEqual(result, 0)
+        self.assertIn("deprecated", error.getvalue())
+        self.assertIn("CMake/CTest", error.getvalue())
 
     def test_trace_comparator_checks_width_and_phase(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
