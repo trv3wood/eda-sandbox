@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .cycle_config import CycleCase, CycleHarnessConfig
-from .cycle_evidence import EvidenceValidator, ModelAuditor, file_digest
+from .cycle_evidence import ModelAuditor, file_digest
 from .cycle_runtime import CommandContext, CommandRunner
 from .cycle_trace import TraceComparator
 from .state import STATE_DIR
@@ -83,11 +83,13 @@ class CycleVerifier:
         self.fresh_seeds = self._fresh_seeds()
 
     def verify(self) -> dict[str, Any]:
-        self._validate_evidence_and_sources()
+        self._audit_model_sources()
         if self.status == "passed":
             self._run_build_gates()
         if self.status == "passed":
             self._run_cases()
+        if self.status == "passed":
+            self._check_stimulus_diversity()
         self._check_protected_inputs()
         report = self._build_report()
         self._write_report(report)
@@ -96,7 +98,6 @@ class CycleVerifier:
     def _protected_paths(self) -> list[Path]:
         return [
             self.config_path,
-            self.workspace / self.config.evidence,
             self.workspace / self.config.source_manifest,
             *[
                 self.workspace / relative
@@ -104,15 +105,12 @@ class CycleVerifier:
             ],
         ]
 
-    def _validate_evidence_and_sources(self) -> None:
+    def _audit_model_sources(self) -> None:
         try:
-            EvidenceValidator(self.workspace, self.config.top).validate(
-                self.workspace / self.config.evidence
-            )
             self.auditor.audit_sources()
-            self.checks.append({"id": "evidence-and-audit", "status": "passed"})
+            self.checks.append({"id": "model-source-audit", "status": "passed"})
         except (FileNotFoundError, ValueError) as exc:
-            self._fail("evidence-and-audit", exc)
+            self._fail("model-source-audit", exc)
 
     def _run_build_gates(self) -> None:
         context = CommandContext(self.run_dir)
@@ -268,6 +266,35 @@ class CycleVerifier:
         else:
             self.checks.append({"id": "protected-inputs", "status": "passed"})
 
+    def _check_stimulus_diversity(self) -> None:
+        groups: dict[str, list[str]] = {"public-random": [], "fresh-random": []}
+        for case in self.case_reports:
+            if case.get("kind") in groups and isinstance(case.get("stimulus_sha256"), str):
+                groups[case["kind"]].append(case["stimulus_sha256"])
+        details: dict[str, Any] = {}
+        failed: list[str] = []
+        for kind, digests in groups.items():
+            ratio = len(set(digests)) / len(digests) if digests else 0.0
+            details[kind] = {
+                "cases": len(digests), "unique": len(set(digests)), "ratio": ratio,
+            }
+            if ratio < self.config.minimum_unique_stimulus_ratio:
+                failed.append(kind)
+        if failed:
+            self.status = "failed"
+            self.checks.append({
+                "id": "stimulus-diversity", "status": "failed",
+                "minimum_ratio": self.config.minimum_unique_stimulus_ratio,
+                "groups": details,
+                "reason": f"stimulus uniqueness below threshold: {failed}",
+            })
+        else:
+            self.checks.append({
+                "id": "stimulus-diversity", "status": "passed",
+                "minimum_ratio": self.config.minimum_unique_stimulus_ratio,
+                "groups": details,
+            })
+
     def _fail(self, identifier: str, error: Exception) -> None:
         self.status = "failed"
         self.checks.append({
@@ -275,7 +302,6 @@ class CycleVerifier:
         })
 
     def _build_report(self) -> dict[str, Any]:
-        evidence = self.workspace / self.config.evidence
         manifest = self.workspace / self.config.source_manifest
         return {
             "schema_version": 1,
@@ -284,10 +310,6 @@ class CycleVerifier:
             "config": {
                 "path": str(self.config_path),
                 "sha256": self.protected.digest(self.config_path),
-            },
-            "evidence": {
-                "path": self.config.evidence,
-                "sha256": self.protected.digest(evidence),
             },
             "source_manifest": {
                 "path": self.config.source_manifest,
@@ -302,7 +324,7 @@ class CycleVerifier:
 
     def _result_name(self) -> str:
         if self.status == "passed":
-            return "cycle-equivalent"
+            return "regression-passed"
         if self.status == "blocked":
             return "blocked"
         return "not-cycle-equivalent"
@@ -313,11 +335,6 @@ class CycleVerifier:
             json.dumps(report, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
             encoding="utf-8",
         )
-
-
-def validate_evidence(workspace: Path, path: Path, top: str) -> dict[str, Any]:
-    """兼容入口：校验证据文件。"""
-    return EvidenceValidator(workspace, top).validate(path)
 
 
 def audit_model(workspace: Path, model_sources: list[str]) -> None:

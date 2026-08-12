@@ -9,7 +9,7 @@ from unittest.mock import patch
 import yaml
 
 from eda_harness.cycle_config import load_cycle_config
-from eda_harness.cycle import compare_traces, validate_evidence, verify_cycle
+from eda_harness.cycle import compare_traces, verify_cycle
 from eda_harness.cli import build_parser
 
 
@@ -25,10 +25,15 @@ if mode == "build-reference":
 elif mode == "build-model":
     target = pathlib.Path(sys.argv[2]) / "model-bin"
     target.parent.mkdir(parents=True)
-    shutil.copy2(sys.executable, target)
+    shutil.copy2("/usr/bin/python3", target)
 elif mode == "test":
     raise SystemExit(0)
 elif mode == "stimulus":
+    seed = int(sys.argv[2])
+    cycles = int(sys.argv[3])
+    output = pathlib.Path(sys.argv[4])
+    output.write_text("".join(json.dumps({"cycle": i, "seed": seed}) + "\n" for i in range(cycles)))
+elif mode == "constant-stimulus":
     cycles = int(sys.argv[3])
     output = pathlib.Path(sys.argv[4])
     output.write_text("".join(json.dumps({"cycle": i}) + "\n" for i in range(cycles)))
@@ -53,7 +58,6 @@ class CycleHarnessTest(unittest.TestCase):
     def _project(self, root: Path) -> tuple[Path, dict]:
         (root / "rtl").mkdir()
         (root / "model").mkdir()
-        (root / "evidence").mkdir()
         (root / "rtl" / "top.sv").write_text(
             "module fifo_top(input logic clk_i, output logic ready_o);\nendmodule\n",
             encoding="utf-8",
@@ -61,27 +65,6 @@ class CycleHarnessTest(unittest.TestCase):
         (root / "rtl" / "files.f").write_text("rtl/top.sv\n", encoding="utf-8")
         (root / "model" / "fifo.cpp").write_text(
             "// 独立的 SystemC 模型占位\n", encoding="utf-8"
-        )
-        (root / "evidence" / "probe.log").write_text(
-            "ready_o toggles after the rising edge\n", encoding="utf-8"
-        )
-        (root / "cycle-evidence.yaml").write_text(
-            yaml.safe_dump({
-                "schema_version": 1,
-                "top": "fifo_top",
-                "semantics": [{
-                    "id": "ready",
-                    "claim": "ready_o 在上升沿后更新",
-                    "rtl_locations": ["rtl/top.sv:1"],
-                    "tool_evidence": [{
-                        "command": ["sim", "ready"],
-                        "observation": "上升沿后 ready_o 翻转",
-                        "artifact": "evidence/probe.log",
-                    }],
-                    "systemc_locations": ["model/fifo.cpp:1"],
-                }],
-            }, sort_keys=False, allow_unicode=True),
-            encoding="utf-8",
         )
         driver = root / "driver.py"
         driver.write_text(DRIVER, encoding="utf-8")
@@ -92,7 +75,6 @@ class CycleHarnessTest(unittest.TestCase):
             "schema_version": 1,
             "workspace": ".",
             "top": "fifo_top",
-            "evidence": "cycle-evidence.yaml",
             "source_manifest": "rtl/files.f",
             "model_sources": ["model/fifo.cpp"],
             "model_binary": "{run_dir}/model/model-bin",
@@ -105,6 +87,7 @@ class CycleHarnessTest(unittest.TestCase):
                 "public_seeds": list(range(1, 11)),
                 "cycles_per_seed": 1000,
                 "fresh_seed_count": 10,
+                "minimum_unique_stimulus_ratio": 0.9,
             },
             "commands": {
                 "reference_build": command("./driver.py", "build-reference", "{run_dir}/reference"),
@@ -130,7 +113,7 @@ class CycleHarnessTest(unittest.TestCase):
                 report = verify_cycle(root, config_path=config_path, config=config)
 
             self.assertEqual(report["status"], "passed")
-            self.assertEqual(report["result"], "cycle-equivalent")
+            self.assertEqual(report["result"], "regression-passed")
             self.assertEqual(len(report["cases"]), 21)
             self.assertFalse((root / "task.md").exists())
             self.assertTrue((root / ".eda-harness" / "cycle-report.json").is_file())
@@ -193,22 +176,24 @@ class CycleHarnessTest(unittest.TestCase):
             self.assertEqual(report["status"], "failed")
             self.assertIn("modified stimulus", report["cases"][0]["reason"])
 
+    def test_repeated_seed_stimulus_fails_diversity_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config_path, _ = self._project(root)
+            raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+            raw["commands"]["stimulus"]["command"][1] = "constant-stimulus"
+            config_path.write_text(yaml.safe_dump(raw), encoding="utf-8")
+            config = load_cycle_config(root, config_path)
+            with patch("eda_harness.cycle.secrets.randbits", side_effect=range(100, 110)):
+                report = verify_cycle(root, config_path=config_path, config=config)
+            self.assertEqual(report["status"], "failed")
+            self.assertEqual(report["checks"][-2]["id"], "stimulus-diversity")
+
     def test_verify_cycle_cli_has_no_task_option(self) -> None:
         parser = build_parser()
         args = parser.parse_args(["verify-cycle", "."])
         self.assertEqual(args.config, "cycle-harness.yaml")
         self.assertFalse(hasattr(args, "task"))
-
-    def test_evidence_rejects_missing_artifact(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            _, _ = self._project(root)
-            evidence_path = root / "cycle-evidence.yaml"
-            raw = yaml.safe_load(evidence_path.read_text(encoding="utf-8"))
-            raw["semantics"][0]["tool_evidence"][0]["artifact"] = "missing.log"
-            evidence_path.write_text(yaml.safe_dump(raw), encoding="utf-8")
-            with self.assertRaises(FileNotFoundError):
-                validate_evidence(root, evidence_path, "fifo_top")
 
     def test_trace_comparator_checks_width_and_phase(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

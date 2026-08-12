@@ -1,40 +1,24 @@
 ---
 name: cycle-systemc-modeling
-description: Read RTL and specifications, use EDA elaboration, simulation, waveform, and query evidence to understand cycle semantics, transcribe an independent cycle-accurate SystemC model, and prove it with strict RTL differential verification. Use for RTL-to-SystemC conversion where clock-edge behavior, reset, state, FIFO/RAM latency, handshake, arbitration, or per-cycle outputs must match; do not use for loosely timed TLM models.
+description: Build and verify an independent, input-driven cycle-accurate SystemC model from RTL. Use when reset, state, FIFO/RAM latency, handshake, arbitration, protocol timing, or per-cycle outputs must match RTL; reject trace predictors, runner-embedded DUT behavior, absolute-cycle specialization, and loosely timed TLM models.
 ---
 
 # Cycle-SystemC 建模
 
-阅读设计并用 EDA 工具验证理解，再转写独立 SystemC。
+由不同 agent 顺序完成基础设施、模型和最终验收；不得让同一 agent 兼任这些角色。各阶段
+只交付代码、配置和机器结果，不写 evidence、architecture、coverage 或迭代说明文档。
 
-## 工作流
+1. **Harness Agent**：恢复 RTL closure，建立 reference、BFM、stimulus generator、trace
+   schema 和 `cycle-harness.yaml`；调用 `$eda-tool-assistant` 解决工具环境。先证明 RTL
+   baseline 可复现，再冻结这些文件和公开回归。它不得实现 SystemC DUT。
+2. **Model Agent**：使用全新会话，只读冻结的 harness/RTL，按需调用 EDA 工具澄清语义；
+   只修改 SystemC DUT 与必要 build glue。Runner 只能解析、驱动、clock/delta 和序列化；
+   DUT 行为只能由输入、配置和显式状态推导，禁止 seed/scenario/sample/绝对 cycle、reference
+   trace 或测试 payload 特化。大型设计按可组合功能逐级实现。
+3. **Acceptance Agent**：Model Agent 停止且模型冻结后，用另一全新会话复核改动边界并运行
+   `eda-harness verify-cycle`；再使用 Model Agent 不可见的 stimulus generator/seeds 做隐藏
+   payload、地址、timing、ACK/NACK、stall/stretch、reset 和 idle-shift metamorphic 差分。
 
-1. 完整阅读 `references/workflow.md` 和 `references/cycle-harness.md`。
-2. 检查 RTL、spec、filelist、top、已有 testbench 和构建脚本。调用
-   `$eda-tool-assistant` 运行 discovery；缺少 simulator、SystemC SDK、工程 wrapper 或
-   环境激活信息时，由它向用户确认并准备外置配置。
-3. 恢复工程真实 source closure。优先使用工程原生 simulator；没有可用原生流程时才用
-   Verilator 作为 reference oracle，并明确这个选择。
-4. 在写模型前调用 EDA 工具验证关键语义。至少覆盖任务适用的端口/位宽、时钟与复位、
-   状态更新优先级、memory/FIFO latency、ready/valid、背压与仲裁。每项写入
-   `cycle-evidence.yaml`，包含 RTL 位置、实际命令、观测 artifact 和模型映射。
-5. 转写 SystemC。以 RTL 可观察的周期行为划分状态和组合逻辑，显式处理定宽运算、边沿、
-   异步复位、delta settle 和每个 process 的唯一 driver。
-6. 创建 `cycle-harness.yaml` 和共享 stimulus 驱动，分别输出标准 JSONL reference/model
-   trace。先局部编译和调试，最终必须运行：
-
-   ```bash
-   eda-harness verify-cycle PROJECT --config cycle-harness.yaml
-   ```
-
-7. 差分失败时只定位首个 mismatch，回到 RTL 与 EDA 证据复核；修复后重跑完整门禁。
-   只有报告状态为 `passed` 且 result 为 `cycle-equivalent` 才能宣称完成。
-
-## 建模边界
-
-- 默认契约是单时钟、明确复位和合法二态 stimulus。
-- 多时钟/CDC、X/Z、模拟时序或厂商原语必须拥有额外契约和差分测试；否则报告 blocked
-  或范围外。
-- 编译通过、SystemC unit test 通过或单条 trace 通过都不是 cycle 等价。
-- 不削弱 observable、随机批次、采样 phase、证据或反逃逸检查来获得绿色结果。
-- 使用 RTL、原生 elaboration/simulation、波形及可用结构查询。
+Model Agent 不得修改冻结 harness；Harness Agent 不得根据候选模型调整 oracle；Acceptance
+Agent 不把隐藏失败反馈给原模型继续拟合。公开门禁通过仅称 `regression-passed`；独立性、
+隐藏与 metamorphic 差分全部通过后才称 `cycle-equivalent`。

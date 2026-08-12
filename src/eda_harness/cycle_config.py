@@ -66,7 +66,6 @@ class CycleHarnessConfig:
     """完成校验后的 Cycle-SystemC 配置。"""
 
     workspace: str
-    evidence: str
     source_manifest: str
     model_sources: tuple[str, ...]
     model_binary: str
@@ -81,6 +80,7 @@ class CycleHarnessConfig:
     public_seeds: tuple[int, ...]
     cycles_per_seed: int
     fresh_seed_count: int
+    minimum_unique_stimulus_ratio: float
     commands: dict[str, CommandSpec]
 
     @property
@@ -111,7 +111,6 @@ class CycleConfigLoader:
     def load(self) -> CycleHarnessConfig:
         raw = self._read_yaml()
         self.workspace = self._workspace(raw)
-        evidence = self._required_file(raw, "evidence")
         source_manifest = self._required_file(raw, "source_manifest")
         model_sources = self._model_sources(raw)
         model_binary = self._model_binary(raw)
@@ -119,10 +118,9 @@ class CycleConfigLoader:
         clock = self._named_choice(raw, "clock", "edge", {"rising", "falling"})
         reset = self._named_choice(raw, "reset", "active", {"high", "low"})
         directed = self._directed_case(raw)
-        public_seeds, cycles_per_seed, fresh_seed_count = self._random(raw)
+        public_seeds, cycles_per_seed, fresh_seed_count, unique_ratio = self._random(raw)
         return CycleHarnessConfig(
             workspace=str(self.workspace.relative_to(self.root)),
-            evidence=evidence,
             source_manifest=source_manifest,
             model_sources=model_sources,
             model_binary=model_binary,
@@ -137,6 +135,7 @@ class CycleConfigLoader:
             public_seeds=public_seeds,
             cycles_per_seed=cycles_per_seed,
             fresh_seed_count=fresh_seed_count,
+            minimum_unique_stimulus_ratio=unique_ratio,
             commands=commands,
         )
 
@@ -323,7 +322,7 @@ class CycleConfigLoader:
         return CycleCase("directed", seed, cycles)
 
     @staticmethod
-    def _random(raw: dict[str, Any]) -> tuple[tuple[int, ...], int, int]:
+    def _random(raw: dict[str, Any]) -> tuple[tuple[int, ...], int, int, float]:
         value = raw.get("random")
         if not isinstance(value, dict):
             raise ValueError("random must be a mapping")
@@ -340,7 +339,16 @@ class CycleConfigLoader:
         fresh_count = value.get("fresh_seed_count", 10)
         if not CycleConfigLoader._positive_int(fresh_count) or fresh_count < 10:
             raise ValueError("random.fresh_seed_count must be at least 10")
-        return tuple(seeds), cycles, fresh_count
+        unique_ratio = value.get("minimum_unique_stimulus_ratio", 0.9)
+        if (
+            not isinstance(unique_ratio, (int, float))
+            or isinstance(unique_ratio, bool)
+            or not 0 < float(unique_ratio) <= 1
+        ):
+            raise ValueError(
+                "random.minimum_unique_stimulus_ratio must be in (0, 1]"
+            )
+        return tuple(seeds), cycles, fresh_count, float(unique_ratio)
 
     @staticmethod
     def _validate_seed(value: Any, field: str) -> None:
