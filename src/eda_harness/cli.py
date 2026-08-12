@@ -76,6 +76,11 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "status":
             result = _status(root)
         elif args.command == "verify-cycle":
+            print(
+                "WARNING: verify-cycle and cycle-harness.yaml are deprecated; "
+                "use the project's CMake/CTest workflow instead.",
+                file=sys.stderr,
+            )
             config_path = _path(root, args.config)
             config = load_cycle_config(root, config_path)
             result = verify_cycle(root, config_path=config_path, config=config)
