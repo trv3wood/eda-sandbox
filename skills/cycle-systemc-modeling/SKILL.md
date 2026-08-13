@@ -7,8 +7,27 @@ description: Build and verify an independent, input-driven cycle-accurate System
 
 这是角色编排与工程纪律，不定义项目专用验证格式。源文件、依赖、构建和公开验证入口由项目
 `CMakeLists.txt` 与 CTest 维护；`.eda-harness` 只保存 `$eda-tool-assistant` 的工具发现结果。
-构建、trace 与差分中间产物放在 `~/Work/<project>/`，不放进源码仓库。
 
+## Git 隔离与冻结
+
+大型设计的各角色必须在隔离的 Git 工作目录中工作；agent 可以在自己的阶段分支提交，但不得
+直接合并或改写集成分支。协调者在完成规定门禁后，创建冻结 tag 并负责将阶段结果集成。先运行
+`git worktree --help`（或等价能力探测）选择下列模式，不得假定目标 Git 版本支持 worktree：
+
+1. **`git worktree` 模式**：支持 `git worktree` 时，以同一仓库的独立 worktree 承载各角色；
+   每个 worktree 检出独立阶段分支，禁止两个角色共用目录或分支。
+2. **旧 Git 回退模式**：不支持 `git worktree` 时，从同一只读基线建立每个
+   角色的独立 clone，并在 clone 内创建独立阶段分支。不得通过复制未提交目录、共享 `.git` 或
+   复用构建目录模拟隔离。
+
+Harness、Architecture 与每次获准返工的 Model 阶段完成后，协调者只在该阶段门禁通过时创建
+不可变冻结 tag（例如 `cycle/harness-frozen`、`cycle/architecture-frozen`、
+`cycle/model-frozen`）。下游角色从指定冻结 tag 新建自己的阶段分支；只读角色检出该 tag 后不
+产生提交。Diagnosis 仅提交或传递定位结果，Acceptance 只在独立 checkout/clone 中执行隐藏
+验证；二者均不得修改候选模型。所有 build、trace 与差分产物按角色和阶段分目录，不能在不同
+工作目录间共享可写中间产物。
+
+## Agent 角色分工
 由不同 agent 顺序完成下列角色；不得让同一 agent 兼任互相制约的角色。各阶段只交付代码、
 配置、机器结果和 agent 交接消息，不写 evidence、architecture、coverage 或迭代说明文档。
 
