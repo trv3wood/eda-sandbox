@@ -18,7 +18,7 @@ done
 [[ "$mode" =~ ^(link|copy)$ ]] || { printf 'Invalid mode\n' >&2; exit 2; }
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-skill_names=(eda-tool-assistant modeling-systemc-tlm modeling-systemverilog)
+skill_names=(eda-tool-assistant modeling-systemc-tlm modeling-systemverilog cycle-systemc-modeling)
 
 install_dir() {
   local source="$1" destination="$2"

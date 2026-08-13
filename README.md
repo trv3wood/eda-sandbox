@@ -1,17 +1,16 @@
 # 开源 EDA 建模沙盒
 
 本仓库采用“薄 skill + 验证型 harness”的工作方式：Agent 直接理解任务、使用工程
-原生 EDA 工具并修改代码；程序只负责发现工具、记录任务基线、检查改动范围和执行
-可重复验证。
+原生 EDA 工具并修改代码；程序负责发现工具、执行可重复验证，并为 Cycle-SystemC
+提供机器可判定的强差分门禁。
 
-仓库提供一个环境辅助 skill 和两个领域建模 skill：
+仓库提供一个环境辅助 skill 和三个领域建模 skill：
 
 - `eda-tool-assistant`：发现、确认并配置本地、研发网、module、SDK 和容器工具环境。
 - `modeling-systemc-tlm`：直接实现 loosely timed SystemC/TLM 模型与测试。
+- `cycle-systemc-modeling`：读取 RTL、用 EDA 工具验证周期语义并转写 Cycle-SystemC，
+  通过专用 RTL 差分门禁验收。
 - `modeling-systemverilog`：直接实现或修改 SystemVerilog RTL/DV。
-
-二者共享 `eda-harness`，不再使用 canonical graph、八类合同、handoff、审批状态机、
-固定 scaffold generator 或结构化 edits.json。
 
 ## 快速开始
 
@@ -30,7 +29,6 @@ uv run eda-harness discover PROJECT
 # PROJECT/harness.yaml
 schema_version: 1
 workspace: .
-allowed_changes: [src/**, tests/**]
 checks:
   - id: syntax
     category: syntax
@@ -41,17 +39,21 @@ checks:
     depends_on: [syntax]
 ```
 
-首个代码改动前创建 snapshot，完成后验证：
+完成后验证：
 
 ```bash
-uv run eda-harness snapshot PROJECT
-# Agent 直接修改 PROJECT
 uv run eda-harness verify PROJECT
 uv run eda-harness status PROJECT
 ```
 
-Snapshot 会把用户已有的 dirty state 作为基线，只审计此后发生的变化。新增、修改、
-删除或重命名若不匹配 snapshot 时锁定的 `allowed_changes`，integrity gate 会失败。
+Cycle-SystemC 任务不使用 `task.md`，改用独立机器契约：
+
+```bash
+uv run eda-harness verify-cycle PROJECT --config cycle-harness.yaml
+```
+
+其配置、证据和 JSONL trace 接口见
+`skills/cycle-systemc-modeling/references/cycle-harness.md`。
 
 ## EDA 环境路由
 

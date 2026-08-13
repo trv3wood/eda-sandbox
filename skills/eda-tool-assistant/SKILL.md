@@ -5,7 +5,7 @@ description: Discover, confirm, and configure EDA tool environments for RTL, Sys
 
 # EDA 工具环境助手
 
-发现机器能安全确认的事实，向用户询问机器无法知道的环境信息，并生成最小、外置、可验证的工具配置。不要把工具发现重新扩展成建模工作流。
+发现机器能安全确认的事实，向用户询问机器无法知道的环境信息，并生成最小、外置、可验证的工具配置。
 
 ## 工作流
 
@@ -20,7 +20,8 @@ description: Discover, confirm, and configure EDA tool environments for RTL, Sys
 5. 不询问或记录许可证服务器地址、token、密码或密钥；只确认相应环境是否已经由用户配置。
 6. 按 `references/configuration.md` 在 `~/Work/<project>/toolchain.env` 准备白名单配置。项目仓库只记录通用示例，不写公司路径。
 7. 在用户已激活的环境中重新运行 discover。商业工具仅做用户确认过的轻量 probe；长时间 elaboration、仿真、镜像拉取和安装动作必须先征得用户同意。
-8. 将最终选定的项目命令以 argv 数组写入 `harness.yaml`，运行实际检查后更新能力结论。
+8. 使用项目原生的 CMake/CTest 或已有脚本记录最终命令，运行实际检查后更新能力结论；不要
+   为工具发现发明新的项目验证配置格式。
 
 ## 询问策略
 

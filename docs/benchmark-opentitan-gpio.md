@@ -44,6 +44,4 @@ OpenTitan GPIO 是合适的中等规模 IP：它有技术规格、寄存器描�
 ## 用于本后端的推荐方式
 
 - 将上述需求和验收场景直接保存到 `task.md`。
-- `allowed_changes` 只包含 GPIO 源模板、HJSON、文档和相关 DV；自动生成的寄存器文件通过 OpenTitan regtool 更新。
-- 在修改前运行 `eda-harness snapshot`，最终用 integrity gate 检查是否误改无关文件。
 - 把 OpenTitan 原生 reggen、lint、compile 和目标 DV 命令写入 `harness.yaml`；缺少商业 simulator 时报告 `blocked`，不要把较低层验证描述为完整通过。

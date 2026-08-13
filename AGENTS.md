@@ -3,7 +3,7 @@
 ## Project Structure & Module Organization
 
 The Python harness lives in `src/eda_harness/`. `cli.py` defines the command
-line; discovery, configuration, snapshotting, and verification are separated
+line; discovery, configuration, and verification are separated
 into focused modules. Environment assistance lives in
 `skills/eda-tool-assistant/`; the thin direct-modeling skills live under
 `skills/modeling-systemc-tlm/` and `skills/modeling-systemverilog/`. Tests are
@@ -25,8 +25,11 @@ uv run bash scripts/regress.sh agent
 
 The first command runs the harness tests; the second catches Python syntax
 errors; the third exercises CLI registration. The regression script checks the
-container toolchain. Build only the image needed, for example
-`podman-compose build eda-uhdm`. SCC and container builds may download or
+container toolchain. Container images, including SCC SDK export artifacts, are
+normally built by GitHub Actions; do not build images locally by default. Use
+the CI image or uploaded SDK artifact for validation and installation. A local
+build (for example `podman-compose build eda-uhdm`) is only appropriate when
+the user explicitly requests it. SCC and container builds may download or
 compile large dependencies; agents must ask the user to run commands expected
 to block for a long time.
 
@@ -43,8 +46,8 @@ is currently enforced, so keep changes PEP 8-compatible and run `compileall`.
 
 Tests use the standard `unittest` framework and follow `test_*.py` naming.
 Add focused fixtures under `tests/fixtures/<design>/`. Cover discovery,
-configuration validation, existing dirty baselines, allowed-change integrity,
-timeouts, dependencies, and passed/failed/blocked aggregation. Tests should not
+configuration validation, timeouts, dependencies, and passed/failed/blocked
+aggregation. Tests should not
 require network access or commercial EDA tools.
 
 ## Commit & Pull Request Guidelines

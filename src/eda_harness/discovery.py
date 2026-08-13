@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from .snapshot import STATE_DIR
+from .state import STATE_DIR
 from .tool_registry import TOOL_BY_NAME, TOOL_SPECS
 from .toolchain import configured_tool
 

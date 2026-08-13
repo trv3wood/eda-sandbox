@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cycle SystemC Modeler"
+  short_description: "分离 Harness、模型和验收 Agent 构建 Cycle-SystemC"
+  default_prompt: "Use $cycle-systemc-modeling with separate harness, model, and acceptance agents to build and verify an input-driven cycle-accurate SystemC DUT."

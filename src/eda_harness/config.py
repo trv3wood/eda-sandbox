@@ -41,13 +41,6 @@ def load_config(root: Path, path: Path) -> dict[str, Any]:
     if not workspace.is_dir():
         raise FileNotFoundError(f"workspace does not exist: {workspace}")
 
-    allowed = raw.get("allowed_changes")
-    if not isinstance(allowed, list) or not allowed or not all(
-        isinstance(item, str) and item and not Path(item).is_absolute()
-        and ".." not in Path(item).parts for item in allowed
-    ):
-        raise ValueError("allowed_changes must be a non-empty list of safe globs")
-
     checks = raw.get("checks")
     if not isinstance(checks, list) or not checks:
         raise ValueError("checks must be a non-empty list")
@@ -110,6 +103,5 @@ def load_config(root: Path, path: Path) -> dict[str, Any]:
     return {
         "schema_version": 1,
         "workspace": str(workspace.relative_to(root.resolve())),
-        "allowed_changes": allowed,
         "checks": normalized,
     }

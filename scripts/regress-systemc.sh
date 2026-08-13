@@ -16,7 +16,6 @@ printf '%s\n' '编译并链接最小 SystemC sc_main，验证当前 SDK。' >"${
 printf '%s\n' \
   'schema_version: 1' \
   'workspace: .' \
-  'allowed_changes: [CMakeLists.txt, main.cpp]' \
   'checks:' \
   '  - id: configure' \
   '    category: build' \
@@ -26,7 +25,6 @@ printf '%s\n' \
   "    command: [\"${cmake_tool}\", --build, build]" \
   '    depends_on: [configure]' \
   >"${probe_dir}/harness.yaml"
-eda-harness snapshot "${probe_dir}" >/dev/null
 printf '%s\n' \
   'cmake_minimum_required(VERSION 3.16)' \
   'project(systemc_probe LANGUAGES CXX)' \

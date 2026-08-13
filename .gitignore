@@ -1,7 +1,7 @@
 __pycache__
 *.egg-info/
-*build*
+*build/
 .env
 env/toolchain.env
-workspace
+# workspace
 .eda-harness/

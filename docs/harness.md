@@ -1,11 +1,9 @@
 # EDA Harness 设计与命令
 
-`src/eda_harness` 不生成 HDL/SystemC，也不解释设计语义。它只实现四项稳定能力：
+`src/eda_harness` 实现两项稳定能力：
 
 1. 发现本机和项目可用的 EDA/构建能力。
-2. 在任务修改前记录实际文件基线。
-3. 检查本次增量是否越出声明范围。
-4. 以 argv、cwd 和 timeout 可重复执行验证并保存日志。
+2. 以 argv、cwd 和 timeout 可重复执行验证并保存日志。
 
 ## 命令
 
@@ -21,19 +19,12 @@
 完整报告仍写入 `discovery.json`；`discover --full` 可将它打印到标准输出。
 
 安全版本 probe 通过的工具为 `usable`；可能初始化许可证的商业工具只检查路径并标为
-`unverified`。报告额外按 capability 汇总候选工具。需要用户环境信息时由
-`eda-tool-assistant` 提问，discover 不执行 `module avail/load` 或目录扫描。
+`unverified`。报告额外按 capability 汇总候选工具。
 Probe 失败的作用域是当前进程或沙盒，不能据此否定用户宿主 shell 中的工具。
-
-### `snapshot ROOT --task task.md --config harness.yaml`
-
-校验配置并把 workspace 当前内容写入 `.eda-harness/baseline.json`。Git 工程使用
-tracked 与未忽略 untracked 文件；非 Git 工程使用递归摘要。已有 snapshot 不会被
-隐式覆盖。
 
 ### `verify ROOT --task task.md --config harness.yaml`
 
-先执行内置 integrity gate，再按配置顺序执行 checks。每个 check 的完整输出保存在
+按配置顺序执行 checks。每个 check 的完整输出保存在
 `.eda-harness/logs/<id>.log`，汇总写入 `.eda-harness/report.json`。
 
 - 可执行文件不存在：`blocked`。
@@ -42,16 +33,28 @@ tracked 与未忽略 untracked 文件；非 Git 工程使用递归摘要。已�
 - required 失败使总体失败；没有失败但存在 required blocked 时总体 blocked。
 - optional 结果不改变总体状态。
 
+### `verify-cycle ROOT --config cycle-harness.yaml`
+
+用于 RTL 到 Cycle-SystemC 的强差分验收，不读取 `task.md`。它校验结构化 EDA 证据和
+模型独立性，从新运行目录执行 reference/model build 与 SystemC unit/elaboration，随后
+用同一 stimulus 完成定向、至少 10×1,000-cycle 公开随机和至少 10×1,000-cycle 运行时
+新种子差分。
+
+Reference 和 model 必须输出标准 JSONL trace。Harness 自己校验连续 sample、采样
+phase、observable 全集、位宽、二态值及逐样点一致性，并核对 stimulus 未被两侧修改。
+结果写入 `.eda-harness/cycle-report.json`，运行产物位于
+`.eda-harness/cycle-runs/`。完整 schema 见
+`skills/cycle-systemc-modeling/references/cycle-harness.md`。
+
 ### `status ROOT`
 
-读取最近的 discovery、baseline 和 report，不执行命令。
+读取最近的 discovery、普通 report 和 cycle report，不执行命令。
 
 ## 配置接口
 
 ```yaml
 schema_version: 1
 workspace: .
-allowed_changes: [rtl/**, dv/**]
 checks:
   - id: lint
     category: lint
@@ -69,6 +72,5 @@ category 可为 `syntax`、`lint`、`build`、`test`、`differential` 或 `custo
 ## 安全和边界
 
 - Harness 不自动选择后端、拉取镜像、运行许可证作业或修改工程源码。
-- Snapshot 锁定允许路径，后续修改 harness.yaml 不能扩大本次任务范围。
 - 报告不记录完整环境，避免把密钥和许可证地址写入任务目录。
 - `scripts/eda-run` 只处理环境路由；实际项目参数由 skill/Agent 根据任务决定。

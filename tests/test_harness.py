@@ -13,7 +13,6 @@ import yaml
 
 from eda_harness.config import load_config
 from eda_harness.discovery import _probe, discover, summarize_discovery
-from eda_harness.snapshot import create_snapshot
 from eda_harness.tool_registry import TOOL_BY_NAME
 from eda_harness.toolchain import load_toolchain_config
 from eda_harness.verification import verify
@@ -28,7 +27,6 @@ class HarnessTest(unittest.TestCase):
             yaml.safe_dump({
                 "schema_version": 1,
                 "workspace": ".",
-                "allowed_changes": ["src/**"],
                 "checks": [{
                     "id": "syntax",
                     "category": "syntax",
@@ -42,33 +40,16 @@ class HarnessTest(unittest.TestCase):
         (root / "src" / "model.cpp").write_text("// 基线\n", encoding="utf-8")
         return task, config_path, load_config(root, config_path)
 
-    def test_snapshot_accepts_allowed_increment_and_preserves_existing_files(self) -> None:
+    def test_verify_runs_declared_checks(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             task, config_path, config = self._project(root)
-            create_snapshot(root, config_path=config_path, task_path=task, config=config)
             (root / "src" / "model.cpp").write_text("// 修改\n", encoding="utf-8")
             (root / "src" / "added.cpp").write_text("// 新增\n", encoding="utf-8")
 
             report = verify(root, config_path=config_path, task_path=task, config=config)
 
             self.assertEqual(report["status"], "passed")
-            self.assertEqual(report["integrity"]["modified"], ["src/model.cpp"])
-            self.assertEqual(report["integrity"]["added"], ["src/added.cpp"])
-
-    def test_change_outside_locked_scope_fails(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            task, config_path, config = self._project(root)
-            (root / "README.md").write_text("原内容\n", encoding="utf-8")
-            create_snapshot(root, config_path=config_path, task_path=task, config=config)
-            (root / "README.md").write_text("越界内容\n", encoding="utf-8")
-            config["allowed_changes"] = ["**"]
-
-            report = verify(root, config_path=config_path, task_path=task, config=config)
-
-            self.assertEqual(report["status"], "failed")
-            self.assertEqual(report["integrity"]["violations"], ["README.md"])
 
     def test_missing_required_tool_blocks_and_optional_failure_does_not(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -86,8 +67,6 @@ class HarnessTest(unittest.TestCase):
                     "timeout_seconds": 10, "required": False, "depends_on": [],
                 },
             ]
-            create_snapshot(root, config_path=config_path, task_path=task, config=config)
-
             report = verify(root, config_path=config_path, task_path=task, config=config)
 
             self.assertEqual(report["status"], "blocked")
@@ -112,20 +91,6 @@ class HarnessTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "unknown or later"):
                 load_config(root, config_path)
 
-    @unittest.skipUnless(shutil.which("git"), "Git is unavailable")
-    def test_git_dirty_content_at_snapshot_is_the_baseline(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            task, config_path, config = self._project(root)
-            subprocess.run(["git", "init", "-q", str(root)], check=True)
-            subprocess.run(["git", "-C", str(root), "add", "src/model.cpp"], check=True)
-            (root / "src" / "model.cpp").write_text("// 用户已有脏改动\n", encoding="utf-8")
-            create_snapshot(root, config_path=config_path, task_path=task, config=config)
-            (root / "src" / "model.cpp").write_text("// 本次任务改动\n", encoding="utf-8")
-            report = verify(root, config_path=config_path, task_path=task, config=config)
-            self.assertEqual(report["integrity"]["modified"], ["src/model.cpp"])
-            self.assertEqual(report["status"], "passed")
-
     def test_workspace_symlink_cannot_escape_root(self) -> None:
         with tempfile.TemporaryDirectory() as temporary, tempfile.TemporaryDirectory() as outside:
             root = Path(temporary)
@@ -134,7 +99,6 @@ class HarnessTest(unittest.TestCase):
             config_path.write_text(yaml.safe_dump({
                 "schema_version": 1,
                 "workspace": "external",
-                "allowed_changes": ["**"],
                 "checks": [{"id": "ok", "command": ["true"]}],
             }), encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "escapes"):
@@ -260,7 +224,6 @@ class HarnessTest(unittest.TestCase):
                     "cwd": ".", "timeout_seconds": 10, "required": True, "depends_on": ["local"],
                 },
             ]
-            create_snapshot(root, config_path=config_path, task_path=task, config=config)
             report = verify(root, config_path=config_path, task_path=task, config=config)
             self.assertEqual(report["status"], "passed")
             self.assertEqual([item["status"] for item in report["checks"]], ["passed", "passed"])
@@ -274,13 +237,12 @@ class HarnessTest(unittest.TestCase):
                 "command": ["python3", "-c", "import time; time.sleep(5)"],
                 "cwd": ".", "timeout_seconds": 1, "required": True, "depends_on": [],
             }]
-            create_snapshot(root, config_path=config_path, task_path=task, config=config)
             report = verify(root, config_path=config_path, task_path=task, config=config)
             self.assertEqual(report["status"], "failed")
             self.assertIn("timed out", report["checks"][0]["reason"])
 
     @unittest.skipUnless(shutil.which("verilator"), "Verilator is unavailable")
-    def test_systemverilog_fixture_discover_snapshot_and_lint(self) -> None:
+    def test_systemverilog_fixture_discover_and_lint(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             rtl = root / "rtl"
@@ -296,7 +258,6 @@ class HarnessTest(unittest.TestCase):
             config_path.write_text(yaml.safe_dump({
                 "schema_version": 1,
                 "workspace": ".",
-                "allowed_changes": ["rtl/**"],
                 "checks": [{
                     "id": "verilator-lint", "category": "lint",
                     "command": ["verilator", "--lint-only", "--top-module", "top", "rtl/top.sv"],
@@ -305,7 +266,6 @@ class HarnessTest(unittest.TestCase):
             discover(root)
             self.assertTrue((root / ".eda-harness" / "discovery-summary.json").is_file())
             config = load_config(root, config_path)
-            create_snapshot(root, config_path=config_path, task_path=task, config=config)
             source.write_text(
                 "module top(input logic a, output logic y); always_comb y = a; endmodule\n",
                 encoding="utf-8",
