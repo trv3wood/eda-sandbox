@@ -9,6 +9,7 @@ description: Discover, confirm, and configure EDA tool environments for RTL, Sys
 
 ## 工作流
 
+0. 查看 `~/.eda-harness`，如果存在直接读取可用工具
 1. 判断当前任务需要的能力，而不是要求所有 EDA 工具都可用。需要工具类别映射时阅读 `references/tool-catalog.md`。
 2. 运行 `eda-harness discover PROJECT`，优先读取 `.eda-harness/discovery-summary.json`；只有诊断具体失败时才读取完整的 `discovery.json`。
 3. 将结果区分为：
